@@ -1,0 +1,104 @@
+/* =====================================================
+   Skeleton Loader Styles
+   ===================================================== */
+
+@keyframes skeletonPulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 0.3; }
+    100% { opacity: 0.6; }
+}
+
+@keyframes skeletonShimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.skeleton {
+    position: relative;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    animation: skeletonPulse 1.8s ease-in-out infinite;
+}
+
+.skeleton::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.04) 50%,
+        transparent 100%
+    );
+    animation: skeletonShimmer 1.8s ease-in-out infinite;
+}
+
+/* Skeleton Text */
+.skeleton-text {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skeleton-text .skeleton:last-child {
+    width: 60%;
+}
+
+/* Skeleton Card */
+.skeleton-card-block {
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-xl);
+    padding: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* Market table skeleton row */
+.skeleton-table-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.skeleton-table-row:last-child {
+    border-bottom: none;
+}
+
+/* News skeleton card */
+.skeleton-news-card {
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    display: flex;
+    flex-direction: row;
+}
+
+.skeleton-news-card .skeleton-news-thumb {
+    flex-shrink: 0;
+    width: 120px;
+    height: 120px;
+}
+
+.skeleton-news-card .skeleton-news-content {
+    flex: 1;
+    padding: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* Asset detail skeleton */
+.skeleton-detail-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}

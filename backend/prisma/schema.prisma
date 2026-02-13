@@ -1,0 +1,147 @@
+// =============================================================================
+// FINANS BACKEND - PRISMA SCHEMA
+// =============================================================================
+// News ingestion from free sources: GDELT, SEC RSS, KAP, Google News RSS
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum NewsSource {
+  GDELT
+  SEC_RSS
+  KAP
+  GOOGLE_NEWS
+}
+
+enum Market {
+  BIST
+  USA
+  CRYPTO
+  MACRO
+  FOREX
+  COMMODITY
+  FUND
+}
+
+// =============================================================================
+// NEWS ITEM
+// =============================================================================
+
+model NewsItem {
+  id          String      @id @default(uuid()) @db.Uuid
+  source      NewsSource
+  sourceId    String?     @map("source_id")  // External ID from the source
+  title       String
+  url         String      @unique            // Dedup: URL must be unique
+  publishedAt DateTime    @map("published_at")
+  language    String      @default("en")     // e.g., "en", "tr"
+  summary     String?     @db.Text
+  raw         Json?       @db.JsonB          // Raw JSON from source
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  // Many-to-many relations
+  tags    NewsItemTag[]
+  tickers NewsItemTicker[]
+
+  // Indexes for common queries
+  @@index([publishedAt(sort: Desc)])
+  @@index([source])
+  @@index([createdAt(sort: Desc)])
+  @@index([source, publishedAt(sort: Desc)])
+  @@map("news_items")
+}
+
+// =============================================================================
+// TAG
+// =============================================================================
+
+model Tag {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  // Many-to-many relation
+  newsItems NewsItemTag[]
+
+  @@index([name])
+  @@map("tags")
+}
+
+// =============================================================================
+// TICKER
+// =============================================================================
+
+model Ticker {
+  id     String  @id @default(uuid()) @db.Uuid
+  symbol String  @unique
+  market Market
+  name   String?
+
+  // Many-to-many relation
+  newsItems NewsItemTicker[]
+
+  @@index([symbol])
+  @@index([market])
+  @@map("tickers")
+}
+
+// =============================================================================
+// MANY-TO-MANY: NEWS ITEM <-> TAG
+// =============================================================================
+
+model NewsItemTag {
+  newsItemId String   @map("news_item_id") @db.Uuid
+  newsItem   NewsItem @relation(fields: [newsItemId], references: [id], onDelete: Cascade)
+  tagId      String   @map("tag_id") @db.Uuid
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([newsItemId, tagId])
+  @@index([tagId])
+  @@index([newsItemId])
+  @@map("news_item_tags")
+}
+
+// =============================================================================
+// MANY-TO-MANY: NEWS ITEM <-> TICKER
+// =============================================================================
+
+model NewsItemTicker {
+  newsItemId String   @map("news_item_id") @db.Uuid
+  newsItem   NewsItem @relation(fields: [newsItemId], references: [id], onDelete: Cascade)
+  tickerId   String   @map("ticker_id") @db.Uuid
+  ticker     Ticker   @relation(fields: [tickerId], references: [id], onDelete: Cascade)
+
+  confidence Float    @default(1.0)  // Confidence score (0.0 - 1.0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@id([newsItemId, tickerId])
+  @@index([tickerId])
+  @@index([newsItemId])
+  @@map("news_item_tickers")
+}
+
+// =============================================================================
+// INGESTION CURSOR (for incremental pulls)
+// =============================================================================
+
+model IngestionCursor {
+  source    NewsSource
+  key       String      // e.g., "lastPublishedAt", "pageToken", "offset"
+  value     String      // Cursor value (ISO date, token, etc.)
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  @@id([source, key])
+  @@map("ingestion_cursors")
+}

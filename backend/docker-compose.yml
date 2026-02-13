@@ -1,0 +1,118 @@
+version: '3.8'
+
+# =============================================================================
+# FINANS BACKEND - LOCAL DEVELOPMENT
+# =============================================================================
+# Usage:
+#   docker-compose up -d        # Start all services
+#   docker-compose up -d db     # Start only Postgres
+#   docker-compose logs -f app  # Follow app logs
+#   docker-compose down -v      # Stop and remove volumes
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # PostgreSQL Database
+  # ===========================================================================
+  db:
+    image: postgres:15-alpine
+    container_name: finans-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: finans_backend
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Redis (Optional - for BullMQ job queues)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: finans-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - redis  # Only starts with: docker-compose --profile redis up
+
+  # ===========================================================================
+  # Backend Application
+  # ===========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: finans-app
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/finans_backend?schema=public
+      REDIS_URL: redis://redis:6379
+      USE_REDIS_QUEUE: "false"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    command: npm run dev
+    profiles:
+      - app  # Only starts with: docker-compose --profile app up
+
+  # ===========================================================================
+  # Database Admin (Optional)
+  # ===========================================================================
+  adminer:
+    image: adminer:latest
+    container_name: finans-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    profiles:
+      - tools  # Only starts with: docker-compose --profile tools up
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# =============================================================================
+# PROFILES
+# =============================================================================
+# Default (no profile): Only starts db
+# --profile redis:      Starts db + redis
+# --profile app:        Starts db + app
+# --profile tools:      Starts db + adminer
+# --profile all:        Starts everything
+#
+# Examples:
+#   docker-compose up -d                     # Just database
+#   docker-compose --profile redis up -d     # Database + Redis
+#   docker-compose --profile app up -d       # Database + App
+#   docker-compose --profile redis --profile app up -d  # All services
+# =============================================================================
+
+

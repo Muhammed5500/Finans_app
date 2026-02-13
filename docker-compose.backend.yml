@@ -1,0 +1,126 @@
+# =============================================================================
+# BACKEND LOCAL DEVELOPMENT - DOCKER COMPOSE
+# =============================================================================
+#
+# Usage:
+#   docker-compose -f docker-compose.backend.yml up -d
+#   docker-compose -f docker-compose.backend.yml logs -f backend-api
+#   docker-compose -f docker-compose.backend.yml down
+#
+# Services:
+#   - db: PostgreSQL 15
+#   - redis: Redis 7 (optional, for BullMQ)
+#   - backend-api: NestJS API server
+#
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # PostgreSQL Database
+  # ===========================================================================
+  db:
+    image: postgres:15-alpine
+    container_name: finans-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: finans_backend
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Redis (Optional - for BullMQ job queues)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: finans-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # NestJS Backend API
+  # ===========================================================================
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: finans-backend-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/finans_backend?schema=public
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: http://localhost:3000
+      # Ingestion settings
+      GDELT_ENABLED: "true"
+      GDELT_INTERVAL_MINUTES: "15"
+      SEC_RSS_ENABLED: "true"
+      SEC_RSS_INTERVAL_MINUTES: "30"
+      KAP_ENABLED: "true"
+      KAP_INTERVAL_MINUTES: "10"
+      GOOGLE_NEWS_ENABLED: "false"
+      GOOGLE_NEWS_INTERVAL_MINUTES: "60"
+      # HTTP client settings
+      HTTP_MAX_CONCURRENT: "5"
+      HTTP_MIN_TIME_MS: "200"
+      HTTP_RETRY_COUNT: "3"
+      HTTP_CACHE_TTL_MS: "300000"
+    ports:
+      - "3001:3001"
+    volumes:
+      # Mount source for hot-reload in development
+      - ./backend/src:/app/src:ro
+      - ./backend/prisma:/app/prisma:ro
+    command: >
+      sh -c "
+        echo '🔄 Running Prisma migrations...' &&
+        npx prisma migrate deploy &&
+        echo '🌱 Running seed...' &&
+        npm run seed &&
+        echo '🚀 Starting API server...' &&
+        npm run start:prod
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres_data:
+    name: finans-postgres-data
+  redis_data:
+    name: finans-redis-data
+
+# =============================================================================
+# NETWORKS (Optional - uses default bridge)
+# =============================================================================
+# networks:
+#   finans-network:
+#     driver: bridge

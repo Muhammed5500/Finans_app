@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finans - US Trade Stream (/ws/us)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: ui-monospace, monospace; background: #0d1117; color: #c9d1d9; padding: 16px; }
+    h1 { color: #58a6ff; margin-bottom: 12px; font-size: 1.1rem; }
+    .status { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
+    .status.connected { background: #238636; }
+    .status.disconnected { background: #da3633; }
+    .status.connecting { background: #9e6a03; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    input { padding: 8px 12px; border: 1px solid #30363d; border-radius: 6px; background: #161b22; color: #c9d1d9; font-size: 13px; min-width: 180px; }
+    button { padding: 8px 14px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    button.primary { background: #238636; color: #fff; }
+    button.primary:hover { background: #2ea043; }
+    button.secondary { background: #30363d; color: #c9d1d9; }
+    button.secondary:hover { background: #484f58; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-size: 11px; max-height: 280px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .trade { color: #3fb950; }
+    .err { color: #f85149; }
+    .meta { color: #8b949e; }
+  </style>
+</head>
+<body>
+  <h1>US Trade Stream — /ws/us</h1>
+  <div id="status" class="status disconnected">Disconnected</div>
+  <div class="row">
+    <input type="text" id="symbols" placeholder="AAPL, MSFT, GOOGL" value="AAPL, MSFT" />
+    <button class="primary" onclick="subscribe()">Subscribe</button>
+    <button class="secondary" onclick="disconnect()">Disconnect</button>
+  </div>
+  <pre id="out"></pre>
+
+  <script>
+    const HOST = location.host || 'localhost:3002';
+    const WS_US = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + HOST + '/ws/us';
+    let ws = null;
+
+    function setStatus(state, text) {
+      const el = document.getElementById('status');
+      el.className = 'status ' + state;
+      el.textContent = text;
+    }
+
+    function log(msg, type) {
+      const el = document.getElementById('out');
+      const line = document.createElement('span');
+      line.className = type || '';
+      line.textContent = '[' + new Date().toISOString().slice(11, 19) + '] ' + (typeof msg === 'string' ? msg : JSON.stringify(msg)) + '\n';
+      el.insertBefore(line, el.firstChild);
+      while (el.children.length > 200) el.removeChild(el.lastChild);
+    }
+
+    function connect() {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+      setStatus('connecting', 'Connecting...');
+      log(WS_US, 'meta');
+      ws = new WebSocket(WS_US);
+
+      ws.onopen = () => {
+        setStatus('connected', 'Connected');
+        log('connected', 'meta');
+        ws.send(JSON.stringify({ type: 'subscribe', symbols: ['AAPL', 'MSFT'] }));
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.type === 'trade') log(d.symbol + ' $' + d.price + ' x' + d.volume + ' @ ' + (d.time || ''), 'trade');
+          else log(d, d.type === 'error' ? 'err' : '');
+        } catch (x) { log(e.data, 'meta'); }
+      };
+
+      ws.onclose = () => {
+        setStatus('disconnected', 'Disconnected');
+        log('closed', 'meta');
+        ws = null;
+      };
+
+      ws.onerror = () => log('error', 'err');
+    }
+
+    function subscribe() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) { log('Not connected', 'err'); return; }
+      const raw = document.getElementById('symbols').value;
+      const symbols = raw.split(',').map(s => s.trim()).filter(Boolean);
+      if (!symbols.length) { log('Enter symbols', 'err'); return; }
+      ws.send(JSON.stringify({ type: 'subscribe', symbols }));
+      log('subscribe: ' + symbols.join(', '), 'meta');
+    }
+
+    function disconnect() {
+      if (ws) { ws.close(); ws = null; }
+    }
+
+    connect();
+  </script>
+</body>
+</html>

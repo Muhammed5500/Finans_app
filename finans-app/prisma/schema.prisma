@@ -1,0 +1,814 @@
+// =============================================================================
+// FINANS APP - Database Schema
+// 
+// PostgreSQL + Prisma ORM
+// Designed for personal finance & investment tracking
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum AssetType {
+  stock
+  crypto
+  etf
+  bond
+  cash
+  commodity
+}
+
+enum AccountType {
+  brokerage      // Traditional stock broker
+  crypto_exchange // Binance, Coinbase, etc.
+  bank           // Bank account (for cash tracking)
+  retirement     // 401k, IRA, BES (Turkish retirement)
+  other
+}
+
+enum TradeType {
+  buy
+  sell
+  dividend       // Dividend received
+  interest       // Interest payment
+  deposit        // Cash deposit
+  withdrawal     // Cash withdrawal
+  transfer_in    // Asset transfer in
+  transfer_out   // Asset transfer out
+  split          // Stock split
+  fee            // Account fee
+}
+
+enum Currency {
+  USD
+  TRY
+  EUR
+  GBP
+}
+
+enum PriceSource {
+  manual
+  coingecko
+  yahoo
+  alpha_vantage
+  binance
+  other
+}
+
+// =============================================================================
+// USER & AUTH
+// Single user now, multi-user ready
+// =============================================================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String?  @unique // Optional for single-user mode
+  password  String?  // Hashed password (optional)
+  name      String?
+  
+  // Settings
+  baseCurrency Currency @default(TRY) @map("base_currency")
+  locale      String    @default("en-US") // Locale for formatting
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  accounts      Account[]
+  watchlists    Watchlist[]
+  rssSources    RssSource[]
+  newsSources   NewsSource[]
+  newsReadState NewsReadState[]
+  investorProfile InvestorProfile?
+  portfolioInsights PortfolioInsight[]
+  portfolioSnapshots PortfolioSnapshot[]
+  portfolioAiInsights PortfolioAiInsight[]
+  
+  @@map("users")
+}
+
+// =============================================================================
+// PORTFOLIO: ACCOUNTS
+// Investment accounts (brokerage, crypto exchange, bank, etc.)
+// =============================================================================
+
+model Account {
+  id          String      @id @default(cuid())
+  userId      String      @map("user_id")
+  
+  name        String      // "Garanti Yatırım", "Binance", etc.
+  type        AccountType
+  currency    Currency    @default(USD) // Account's base currency
+  institution String?     // Optional: institution name
+  accountNumber String?   @map("account_number") // Optional: masked account #
+  
+  isActive    Boolean     @default(true) @map("is_active")
+  notes       String?
+  
+  // Timestamps
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades      Trade[]
+  
+  @@index([userId])
+  @@map("accounts")
+}
+
+// =============================================================================
+// PORTFOLIO: ASSETS
+// Tradeable assets (stocks, crypto, ETFs, etc.)
+// =============================================================================
+
+model Asset {
+  id          String    @id @default(cuid())
+  
+  symbol      String    // "AAPL", "BTC", "THYAO"
+  name        String    // "Apple Inc.", "Bitcoin"
+  type        AssetType
+  
+  // Market/Exchange identifier for uniqueness
+  // e.g., "NASDAQ", "BIST", "CRYPTO"
+  exchange    String    @default("GLOBAL")
+  
+  // Currency the asset is priced in
+  currency    Currency  @default(USD)
+  
+  // Optional metadata
+  isin        String?   // International Securities ID
+  sector      String?
+  country     String?
+  
+  isActive    Boolean   @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  trades         Trade[]
+  prices         Price[]
+  watchlistItems WatchlistItem[]
+  
+  // Unique constraint: symbol + exchange combination
+  @@unique([symbol, exchange])
+  @@index([symbol])
+  @@index([type])
+  @@map("assets")
+}
+
+// =============================================================================
+// PORTFOLIO: TRADES
+// Buy/sell transactions and other account activities
+// =============================================================================
+
+model Trade {
+  id          String    @id @default(cuid())
+  accountId   String    @map("account_id")
+  assetId     String    @map("asset_id")
+  
+  type        TradeType
+  
+  // Trade details
+  quantity    Decimal   @db.Decimal(18, 8) // Support crypto decimals
+  price       Decimal   @db.Decimal(18, 8) // Price per unit
+  fees        Decimal   @default(0) @db.Decimal(18, 8)
+  
+  // Computed total (quantity * price + fees for buys, - fees for sells)
+  // Stored for query efficiency
+  total       Decimal   @db.Decimal(18, 8)
+  
+  // Currency of the trade
+  currency    Currency  @default(USD)
+  
+  // When the trade was executed (may differ from createdAt)
+  executedAt  DateTime  @map("executed_at")
+  
+  notes       String?
+  
+  // External reference (broker confirmation number, tx hash, etc.)
+  externalId  String?   @map("external_id")
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  asset       Asset     @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  
+  @@index([accountId])
+  @@index([assetId])
+  @@index([executedAt])
+  @@index([accountId, assetId]) // For position calculations
+  @@index([type])
+  @@map("trades")
+}
+
+// =============================================================================
+// MARKETS: WATCHLISTS
+// User-defined lists of assets to track
+// =============================================================================
+
+model Watchlist {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  
+  name        String    // "Tech Stocks", "Crypto", "BIST Favorites"
+  description String?
+  sortOrder   Int       @default(0) @map("sort_order")
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       WatchlistItem[]
+  
+  @@index([userId])
+  @@map("watchlists")
+}
+
+model WatchlistItem {
+  id          String    @id @default(cuid())
+  watchlistId String    @map("watchlist_id")
+  assetId     String    @map("asset_id")
+  
+  sortOrder   Int       @default(0) @map("sort_order")
+  notes       String?
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  watchlist   Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  asset       Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  // Unique: one asset per watchlist
+  @@unique([watchlistId, assetId])
+  @@index([watchlistId])
+  @@map("watchlist_items")
+}
+
+// =============================================================================
+// MARKETS: PRICES
+// Time-series price data
+// =============================================================================
+
+model Price {
+  id          String      @id @default(cuid())
+  assetId     String      @map("asset_id")
+  
+  // OHLCV data
+  open        Decimal     @db.Decimal(18, 8)
+  high        Decimal     @db.Decimal(18, 8)
+  low         Decimal     @db.Decimal(18, 8)
+  close       Decimal     @db.Decimal(18, 8)
+  volume      Decimal?    @db.Decimal(24, 8) // Can be very large
+  
+  // Price timestamp (the time this price represents)
+  timestamp   DateTime
+  
+  // Data source
+  source      PriceSource @default(manual)
+  
+  // Timestamps
+  createdAt   DateTime    @default(now()) @map("created_at")
+  
+  // Relations
+  asset       Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  // Unique: one price per asset per timestamp
+  @@unique([assetId, timestamp])
+  @@index([assetId])
+  @@index([timestamp])
+  @@index([assetId, timestamp(sort: Desc)]) // For latest price queries
+  @@map("prices")
+}
+
+// =============================================================================
+// MARKETS: FX RATES
+// Currency exchange rates for base currency conversion
+// =============================================================================
+
+model FxRate {
+  id          String    @id @default(cuid())
+  
+  // Currency pair: from -> to
+  fromCurrency Currency @map("from_currency")
+  toCurrency   Currency @map("to_currency")
+  
+  rate        Decimal   @db.Decimal(18, 8)
+  
+  // Rate timestamp
+  timestamp   DateTime
+  
+  // Data source
+  source      PriceSource @default(manual)
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Unique: one rate per currency pair per timestamp
+  @@unique([fromCurrency, toCurrency, timestamp])
+  @@index([fromCurrency, toCurrency])
+  @@index([timestamp])
+  @@map("fx_rates")
+}
+
+// =============================================================================
+// NEWS: NEWS SOURCES
+// News sources (RSS, API, manual)
+// =============================================================================
+
+enum NewsSourceType {
+  rss
+  api
+  manual
+}
+
+model NewsSource {
+  id          String          @id @default(uuid())
+  userId      String?         @map("user_id") // Optional for system-wide sources
+  
+  name        String          // "Reuters", "Bloomberg", "CoinDesk"
+  type        NewsSourceType  @default(rss)
+  baseUrl     String?         @map("base_url") // Base URL for API sources
+  url         String?         // RSS feed URL or API endpoint
+  
+  description String?
+  
+  // Fetch settings
+  enabled     Boolean         @default(true)
+  
+  // Timestamps
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rawItems    NewsItemRaw[]
+  
+  @@index([userId])
+  @@index([type])
+  @@index([enabled])
+  @@map("news_sources")
+}
+
+// =============================================================================
+// NEWS: RSS SOURCES (Legacy - kept for compatibility)
+// =============================================================================
+
+model RssSource {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  
+  name        String    // "Reuters", "Bloomberg", "CoinDesk"
+  url         String    // RSS feed URL
+  description String?
+  
+  // Categorization
+  tags        String[]  @default([])
+  category    String?   // "Economy", "Tech", "Crypto"
+  language    String    @default("en")
+  
+  // Fetch settings
+  isActive    Boolean   @default(true) @map("is_active")
+  fetchIntervalMinutes Int @default(30) @map("fetch_interval_minutes")
+  lastFetchedAt DateTime? @map("last_fetched_at")
+  lastError   String?   @map("last_error")
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newsItems   NewsItem[]
+  
+  // Unique: URL per user (different users can have same source)
+  @@unique([userId, url])
+  @@index([userId])
+  @@map("rss_sources")
+}
+
+// =============================================================================
+// NEWS: RAW NEWS ITEMS
+// Raw ingested news items before cleaning
+// =============================================================================
+
+model NewsItemRaw {
+  id            String    @id @default(uuid())
+  sourceId      String    @map("source_id")
+  
+  // Raw data from source
+  fetchedAt     DateTime  @default(now()) @map("fetched_at")
+  url           String
+  titleRaw      String    @map("title_raw") @db.Text
+  contentRaw    String?   @map("content_raw") @db.Text
+  publishedAtRaw String?  @map("published_at_raw") // Text field for raw date string
+  
+  // Processing metadata
+  languageGuess String?   @map("language_guess")
+  hashDedup     String    @map("hash_dedup") // Hash for deduplication
+  
+  // Timestamps
+  createdAt     DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  source        NewsSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  cleanItem     NewsItemClean?
+  
+  // Unique: hash for deduplication
+  @@unique([hashDedup])
+  @@index([sourceId])
+  @@index([fetchedAt(sort: Desc)])
+  @@index([url])
+  @@map("news_items_raw")
+}
+
+// =============================================================================
+// NEWS: CLEANED NEWS ITEMS
+// Cleaned and normalized news items
+// =============================================================================
+
+model NewsItemClean {
+  id            String    @id @default(uuid())
+  rawId         String    @unique @map("raw_id")
+  
+  // Cleaned data
+  cleanedAt     DateTime  @default(now()) @map("cleaned_at")
+  title         String    @db.Text
+  content       String?   @db.Text
+  publishedAt   DateTime  @map("published_at")
+  language      String    @default("en")
+  
+  // Extracted metadata
+  tickers       String[]  @default([]) // Extracted ticker symbols
+  markets       String[]  @default([]) // Related markets (BIST, US, Crypto, etc.)
+  
+  // Timestamps
+  createdAt     DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  rawItem       NewsItemRaw @relation(fields: [rawId], references: [id], onDelete: Cascade)
+  analysis      NewsAiAnalysis?
+  embedding     NewsEmbedding?
+  
+  @@index([publishedAt(sort: Desc)])
+  @@index([language])
+  @@index([markets])
+  @@map("news_items_clean")
+}
+
+// =============================================================================
+// NEWS: NEWS ITEMS (Legacy - kept for compatibility)
+// Individual news articles
+// =============================================================================
+
+model NewsItem {
+  id          String    @id @default(cuid())
+  sourceId    String    @map("source_id")
+  
+  // Article data
+  title       String
+  url         String
+  summary     String?   @db.Text
+  author      String?
+  
+  // Categorization (may differ from source category)
+  category    String?
+  tags        String[]  // Array of tags
+  
+  // External ID from source (for deduplication)
+  externalId  String?   @map("external_id")
+  
+  // Article publish time
+  publishedAt DateTime  @map("published_at")
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  source      RssSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  readStates  NewsReadState[]
+  analysis    NewsAnalysis?
+  
+  // Unique: URL per source (for deduplication)
+  @@unique([sourceId, url])
+  @@index([sourceId])
+  @@index([publishedAt(sort: Desc)])
+  @@index([category])
+  @@map("news_items")
+}
+
+// =============================================================================
+// NEWS: READ STATE
+// Per-user read/unread tracking
+// For single user this is simple; ready for multi-user
+// =============================================================================
+
+model NewsReadState {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  newsItemId  String    @map("news_item_id")
+  
+  isRead      Boolean   @default(true) @map("is_read")
+  readAt      DateTime  @default(now()) @map("read_at")
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newsItem    NewsItem  @relation(fields: [newsItemId], references: [id], onDelete: Cascade)
+  
+  // Unique: one state per user per item
+  @@unique([userId, newsItemId])
+  @@index([userId])
+  @@index([newsItemId])
+  @@map("news_read_states")
+}
+
+// =============================================================================
+// AI: NEWS AI ANALYSIS
+// AI-generated analysis of cleaned news items
+// =============================================================================
+
+model NewsAiAnalysis {
+  id            String    @id @default(uuid())
+  cleanId       String    @unique @map("clean_id")
+  
+  // Analysis metadata
+  analyzedAt    DateTime  @default(now()) @map("analyzed_at")
+  model         String    @default("gpt-4o-mini")
+  version       String    @default("1.0")
+  
+  // AI analysis result (JSONB for flexibility)
+  jsonResult    Json      @map("json_result") @db.JsonB
+  // Structure:
+  // {
+  //   summary: string
+  //   sentiment: "positive" | "neutral" | "negative"
+  //   impact_horizon: "immediate" | "short_term" | "medium_term" | "long_term"
+  //   confidence: number (0-1)
+  //   related_symbols: string[]
+  //   key_reasons: string[]
+  //   watch_items: string[]
+  //   markets: string[]
+  // }
+  
+  // Safety flags
+  safetyFlags   Json?     @map("safety_flags") @db.JsonB
+  
+  // Timestamps
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  cleanItem     NewsItemClean @relation(fields: [cleanId], references: [id], onDelete: Cascade)
+  embedding     NewsEmbedding? @relation("NewsEmbeddingAnalysis")
+  
+  @@index([cleanId])
+  @@index([analyzedAt(sort: Desc)])
+  @@index([model])
+  @@map("news_ai_analysis")
+}
+
+// =============================================================================
+// AI: NEWS ANALYSIS (Legacy - kept for compatibility)
+// AI-generated analysis of news items
+// =============================================================================
+
+model NewsAnalysis {
+  id          String    @id @default(cuid())
+  newsItemId  String    @unique @map("news_item_id")
+  
+  // AI-generated summary
+  summary     String    @db.Text
+  
+  // Sentiment: positive, neutral, negative
+  sentiment   String    // "positive" | "neutral" | "negative"
+  sentimentScore Float  @map("sentiment_score") // -1.0 to 1.0
+  
+  // Impact horizon: immediate, short_term, medium_term, long_term
+  impactHorizon String  @map("impact_horizon") // "immediate" | "short_term" | "medium_term" | "long_term"
+  
+  // Related symbols extracted from the news
+  relatedSymbols String[] @map("related_symbols") @default([])
+  
+  // AI metadata
+  model       String    @default("gpt-4o-mini") // Model used
+  promptVersion String? @map("prompt_version") // Version of prompt used
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  newsItem    NewsItem  @relation(fields: [newsItemId], references: [id], onDelete: Cascade)
+  
+  @@index([newsItemId])
+  @@index([sentiment])
+  @@index([impactHorizon])
+  @@index([createdAt(sort: Desc)])
+  @@map("news_analyses")
+}
+
+// =============================================================================
+// AI: NEWS EMBEDDINGS
+// Vector embeddings for semantic search (pgvector)
+// =============================================================================
+
+model NewsEmbedding {
+  id          String    @id @default(uuid())
+  cleanId     String    @unique @map("clean_id")
+  analysisId  String?   @unique @map("analysis_id")
+  
+  // Vector embedding (1536 dimensions for text-embedding-3-small)
+  // Stored as JSON array, converted to pgvector vector type in migration
+  embedding   Json      // Array of floats (will be converted to vector in SQL)
+  
+  // Model used for embedding
+  model       String    @default("text-embedding-3-small")
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  cleanItem   NewsItemClean @relation(fields: [cleanId], references: [id], onDelete: Cascade)
+  analysis    NewsAiAnalysis? @relation("NewsEmbeddingAnalysis", fields: [analysisId], references: [id], onDelete: Cascade)
+  
+  @@index([cleanId])
+  @@index([model])
+  @@map("news_embeddings")
+}
+
+// =============================================================================
+// AI: INVESTOR PROFILE
+// Inferred investor profile (hybrid: rules + LLM)
+// =============================================================================
+
+model InvestorProfile {
+  id          String    @id @default(uuid())
+  userId      String    @unique @map("user_id")
+  
+  // Profile metadata
+  computedAt  DateTime  @default(now()) @map("computed_at")
+  version     String    @default("1.0")
+  
+  // Profile result (JSONB for flexibility)
+  jsonResult  Json      @map("json_result") @db.JsonB
+  // Structure:
+  // {
+  //   risk_tolerance: "conservative" | "moderate" | "aggressive"
+  //   investment_style: "value" | "growth" | "dividend" | "momentum" | "balanced"
+  //   time_horizon: "short" | "medium" | "long"
+  //   preferred_sectors: string[]
+  //   confidence: number (0-1)
+  //   insights: { ... }
+  // }
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([computedAt(sort: Desc)])
+  @@map("investor_profiles")
+}
+
+// =============================================================================
+// AI: PORTFOLIO INSIGHTS
+// AI-generated portfolio insights cards
+// =============================================================================
+
+enum InsightType {
+  risk
+  concentration
+  currency_exposure
+  volatility
+  diversification
+  sector_allocation
+}
+
+model PortfolioInsight {
+  id          String      @id @default(cuid())
+  userId      String      @map("user_id")
+  
+  // Insight type
+  type        InsightType
+  
+  // Insight title and description
+  title       String
+  description String      @db.Text
+  
+  // Severity: info, warning, critical
+  severity    String      @default("info") // "info" | "warning" | "critical"
+  
+  // Structured data (JSON for flexibility)
+  data        Json?       // Type-specific data (e.g., concentration percentages, risk metrics)
+  
+  // Recommendations (optional)
+  recommendations String[] @default([])
+  
+  // Calculation metadata
+  calculatedAt DateTime   @map("calculated_at")
+  model       String?     // Model used if AI-generated
+  
+  // Timestamps
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([type])
+  @@index([severity])
+  @@index([calculatedAt(sort: Desc)])
+  @@index([userId, calculatedAt(sort: Desc)])
+  @@map("portfolio_insights")
+}
+
+// =============================================================================
+// AI: PORTFOLIO SNAPSHOTS
+// Portfolio snapshots for analysis
+// =============================================================================
+
+model PortfolioSnapshot {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  
+  // Snapshot metadata
+  capturedAt  DateTime  @default(now()) @map("captured_at")
+  
+  // Holdings data (JSONB)
+  holdingsJson Json     @map("holdings_json") @db.JsonB
+  // Structure: Array of holdings with asset info, quantity, value, etc.
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([capturedAt(sort: Desc)])
+  @@index([userId, capturedAt(sort: Desc)])
+  @@map("portfolio_snapshots")
+}
+
+// =============================================================================
+// AI: PORTFOLIO AI INSIGHTS
+// AI-generated portfolio insights
+// =============================================================================
+
+model PortfolioAiInsight {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  
+  // Insight metadata
+  computedAt  DateTime  @default(now()) @map("computed_at")
+  version     String    @default("1.0")
+  
+  // Insight result (JSONB)
+  jsonResult  Json      @map("json_result") @db.JsonB
+  // Structure: Array of insights with type, title, description, severity, data, recommendations
+  
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([computedAt(sort: Desc)])
+  @@index([userId, computedAt(sort: Desc)])
+  @@map("portfolio_ai_insights")
+}
+
+// =============================================================================
+// FUTURE EXTENSIBILITY
+// 
+// The schema is designed to easily add:
+// - Documents: Add Document model with file storage references
+// - Alerts: Add Alert model for price/news notifications
+// - Goals: Add Goal model for financial targets
+// - Tags: Add Tag model for cross-entity tagging
+// =============================================================================
+
