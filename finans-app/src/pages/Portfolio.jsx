@@ -5,11 +5,12 @@ import {
     Trash2,
     X,
     RefreshCw,
-    Settings as SettingsIcon,
     Clock,
     ChevronDown,
     ChevronRight,
 } from 'lucide-react';
+import NewsReaderModal from '../components/NewsReaderModal';
+import { getSourceInfo } from '../constants/newsSourceLogos';
 import {
     PieChart,
     Pie,
@@ -61,6 +62,7 @@ const NEWS_CATEGORIES = [
     { value: 'crypto', label: 'Crypto' },
     { value: 'bist', label: 'BIST' },
     { value: 'us', label: 'US' },
+    { value: 'economy', label: 'Economy' },
 ];
 
 const TIME_RANGES = ['1D', '3M', '1Y', 'TIME'];
@@ -330,6 +332,7 @@ export default function Portfolio() {
     const [newsLoading, setNewsLoading] = useState(true);
     const [newsCategory, setNewsCategory] = useState('crypto');
     const newsTimerRef = useRef(null);
+    const [newsReaderArticle, setNewsReaderArticle] = useState(null);
 
     // Form
     const [formMarket, setFormMarket] = useState('us');
@@ -470,8 +473,11 @@ export default function Portfolio() {
         try {
             const res = await fetch(`/api/news?category=${newsCategory}&limit=15`);
             const json = await res.json();
-            if (json.ok && Array.isArray(json.data)) setNews(json.data);
-            else if (Array.isArray(json)) setNews(json);
+            if (json.ok && json.result?.items) {
+                setNews(json.result.items);
+            } else if (Array.isArray(json)) {
+                setNews(json);
+            }
         } catch { /* silent */ }
         setNewsLoading(false);
     }, [newsCategory]);
@@ -971,25 +977,46 @@ export default function Portfolio() {
                         ) : news.length === 0 ? (
                             <div className="news-empty">No news available</div>
                         ) : (
-                            news.map((item, i) => (
-                                <a key={item.id || i} href={item.url} target="_blank" rel="noopener noreferrer"
-                                    className="news-item">
-                                    <div className="news-avatar" style={{ background: AVATAR_COLORS[i % AVATAR_COLORS.length] }}>
-                                        {(item.source || 'N').charAt(0).toUpperCase()}
-                                    </div>
-                                    <div className="news-item-info">
-                                        <span className="news-item-title">{item.title}</span>
-                                        <span className="news-item-source">{item.source || 'News'}</span>
-                                    </div>
-                                    <span className="news-item-pct">
-                                        {((Math.abs(item.title?.length || 5) * 1.37) % 20).toFixed(2)}%
-                                    </span>
-                                </a>
-                            ))
+                            news.map((item, i) => {
+                                const si = getSourceInfo(item.source);
+                                return (
+                                    <button key={item.id || i}
+                                        className="news-item"
+                                        onClick={() => setNewsReaderArticle({
+                                            id: item.id,
+                                            headline: item.title,
+                                            preview: item.summary || '',
+                                            url: item.url,
+                                            source: item.source,
+                                            sourceId: item.source,
+                                            sourceDisplayName: item.sourceDisplayName || si.label,
+                                            imageUrl: item.imageUrl,
+                                            timestamp: relativeTime(item.publishedAt),
+                                            language: item.language || 'en',
+                                        })}
+                                    >
+                                        <div className="news-avatar" style={{ background: si.color }}>
+                                            {si.label.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="news-item-info">
+                                            <span className="news-item-title">{item.title}</span>
+                                            <span className="news-item-source">{si.label}</span>
+                                        </div>
+                                    </button>
+                                );
+                            })
                         )}
                     </div>
                 </div>
             </aside>
+
+            {/* News Reader Modal */}
+            {newsReaderArticle && (
+                <NewsReaderModal
+                    article={newsReaderArticle}
+                    onClose={() => setNewsReaderArticle(null)}
+                />
+            )}
         </div>
     );
 }

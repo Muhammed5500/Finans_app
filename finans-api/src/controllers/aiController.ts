@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { chat, summarizeNews, analyzePortfolio } from '../services/ai/aiService';
+import { chat, summarizeNews, analyzeNewsEnhanced, analyzePortfolio } from '../services/ai/aiService';
 import { AppError } from '../utils/errors';
 
 export async function chatHandler(req: Request, res: Response): Promise<void> {
@@ -17,6 +17,15 @@ export async function summarizeHandler(req: Request, res: Response): Promise<voi
     throw new AppError(400, 'Missing required field: title', 'MISSING_TITLE');
   }
   const result = await summarizeNews(title, source, summary);
+  res.json({ ok: true, result });
+}
+
+export async function analyzeNewsHandler(req: Request, res: Response): Promise<void> {
+  const { title, source, summary, language } = req.body;
+  if (!title || typeof title !== 'string') {
+    throw new AppError(400, 'Missing required field: title', 'MISSING_TITLE');
+  }
+  const result = await analyzeNewsEnhanced(title, source, summary, language);
   res.json({ ok: true, result });
 }
 

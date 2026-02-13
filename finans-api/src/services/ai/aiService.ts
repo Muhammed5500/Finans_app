@@ -1,14 +1,13 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-
 let model: GenerativeModel | null = null;
 
 function getModel(): GenerativeModel {
   if (!model) {
-    if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not configured');
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   }
   return model;
 }
@@ -116,6 +115,74 @@ JSON formatı:
   } catch { /* fall through */ }
 
   return { summary: text, keyPoints: [], sentiment: 'neutral', marketImpact: '' };
+}
+
+// ─── Enhanced News Analysis ──────────────────────────────────────────────
+
+export interface NewsAnalysisResult {
+  quickLook: string[];
+  affectedStocks: string[];
+  sentiment: string;
+  marketImpact: string;
+  summary: string;
+  keyPoints: string[];
+}
+
+export async function analyzeNewsEnhanced(
+  title: string,
+  source?: string,
+  summary?: string,
+  language?: string,
+): Promise<NewsAnalysisResult> {
+  const m = getModel();
+  const lang = language === 'tr' ? 'tr' : 'en';
+
+  const langInstruction = lang === 'tr'
+    ? 'Yanıtını Türkçe ver. Hisse sembolleri BIST formatında olsun (THYAO, GARAN, ASELS vb).'
+    : 'Respond in English. Stock symbols should be in NYSE/NASDAQ format (AAPL, MSFT, TSLA etc).';
+
+  const prompt = `${SYSTEM_PROMPT}
+
+Aşağıdaki finans haberini detaylı analiz et. ${langInstruction}
+
+Yanıtını SADECE geçerli JSON olarak ver, başka hiçbir şey ekleme:
+
+Haber Başlığı: ${title}
+${source ? `Kaynak: ${source}` : ''}
+${summary ? `Özet: ${summary}` : ''}
+
+JSON formatı:
+{
+  "quickLook": ["Kısa madde 1", "Kısa madde 2", "Kısa madde 3"],
+  "affectedStocks": ["SEMBOL1", "SEMBOL2"],
+  "sentiment": "positive veya negative veya neutral",
+  "marketImpact": "Piyasa etkisi değerlendirmesi (1-2 cümle)",
+  "summary": "Haberin 2-3 cümlelik detaylı özeti",
+  "keyPoints": ["Anahtar nokta 1", "Anahtar nokta 2"]
+}
+
+Kurallar:
+- quickLook tam olarak 3 madde olmalı, her biri max 15 kelime
+- affectedStocks en fazla 5 sembol, sadece doğrudan etkilenen hisseler
+- Kripto haberleri için BTC, ETH gibi semboller kullan
+- Eğer etkilenen hisse yoksa boş dizi ver`;
+
+  const result = await m.generateContent(prompt);
+  const text = result.response.text();
+
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+  } catch { /* fall through */ }
+
+  return {
+    quickLook: [],
+    affectedStocks: [],
+    sentiment: 'neutral',
+    marketImpact: '',
+    summary: text,
+    keyPoints: [],
+  };
 }
 
 // ─── Portfolio Analysis ───────────────────────────────────────────────────

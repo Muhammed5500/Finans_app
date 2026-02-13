@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
     Clock,
-    ExternalLink,
     Sparkles,
     HelpCircle,
     TrendingUp,
@@ -11,6 +10,8 @@ import {
     Loader2
 } from 'lucide-react';
 import { SkeletonNewsCard } from '../components/Skeleton';
+import NewsReaderModal from '../components/NewsReaderModal';
+import { getSourceInfo } from '../constants/newsSourceLogos';
 import './News.css';
 import newsPlaceholderUrl from '../assets/news-placeholder.svg';
 
@@ -42,6 +43,8 @@ function mapNewsItemToCard(item) {
     return {
         id: item.id,
         source: item.source || 'Kaynak',
+        sourceId: item.source || '',
+        sourceDisplayName: item.sourceDisplayName || item.source || 'Kaynak',
         headline: item.title || '',
         preview: item.summary || '',
         timestamp: relativeTime(item.publishedAt),
@@ -49,6 +52,7 @@ function mapNewsItemToCard(item) {
         url: item.url || '#',
         imageUrl: item.imageUrl || NEWS_PLACEHOLDER,
         sentiment: item.sentiment || 'neutral',
+        language: item.language || 'en',
     };
 }
 
@@ -60,11 +64,11 @@ const tabs = [
 ];
 
 // Fetch AI analysis from Gemini backend
-async function fetchAIAnalysis(headline, source, preview) {
-    const res = await fetch('/api/ai/summarize', {
+async function fetchAIAnalysis(headline, source, preview, language) {
+    const res = await fetch('/api/ai/analyze-news', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: headline, source, summary: preview }),
+        body: JSON.stringify({ title: headline, source, summary: preview, language }),
     });
     const json = await res.json();
     if (json.ok && json.result) return json.result;
@@ -85,10 +89,8 @@ export default function News() {
     const [newsByTab, setNewsByTab] = useState({});
     const [loadingByTab, setLoadingByTab] = useState({});
     const [errorByTab, setErrorByTab] = useState({});
-    // News reader drawer
+    // News reader modal
     const [readerArticle, setReaderArticle] = useState(null);
-    const [readerAI, setReaderAI] = useState(null);
-    const [readerLoading, setReaderLoading] = useState(false);
 
     const fetchNews = useCallback(async (tabId, silent = false) => {
         const category = TAB_TO_CATEGORY[tabId] ?? tabId;
@@ -132,7 +134,7 @@ export default function News() {
     const isLoadingFeed = loadingByTab[activeTab];
     const feedError = errorByTab[activeTab];
 
-    const handleAIAction = async (newsId, type, headline, source, preview) => {
+    const handleAIAction = async (newsId, type, headline, source, preview, language) => {
         if (activeAI?.newsId === newsId && activeAI?.type === type) {
             setActiveAI(null);
             setAIResponse('');
@@ -145,24 +147,28 @@ export default function News() {
         // Use cached result if available
         if (aiCache[newsId]) {
             const cached = aiCache[newsId];
-            if (type === 'summarize') setAIResponse(cached.summary);
-            else if (type === 'meaning') setAIResponse(cached.marketImpact || cached.summary);
+            if (type === 'summarize') {
+                const ql = cached.quickLook?.length ? cached.quickLook.join('\n• ') : '';
+                setAIResponse(ql ? `• ${ql}` : cached.summary);
+            } else if (type === 'meaning') setAIResponse(cached.marketImpact || cached.summary);
             else if (type === 'impact') {
-                const points = cached.keyPoints?.length ? '\n\n• ' + cached.keyPoints.join('\n• ') : '';
-                setAIResponse(`${cached.summary}${points}`);
+                const stocks = cached.affectedStocks?.length ? '\n\nEtkilenen: ' + cached.affectedStocks.join(', ') : '';
+                setAIResponse(`${cached.summary}${stocks}`);
             }
             return;
         }
 
         setIsLoading(true);
         try {
-            const result = await fetchAIAnalysis(headline, source, preview);
+            const result = await fetchAIAnalysis(headline, source, preview, language);
             setAiCache(prev => ({ ...prev, [newsId]: result }));
-            if (type === 'summarize') setAIResponse(result.summary);
-            else if (type === 'meaning') setAIResponse(result.marketImpact || result.summary);
+            if (type === 'summarize') {
+                const ql = result.quickLook?.length ? result.quickLook.join('\n• ') : '';
+                setAIResponse(ql ? `• ${ql}` : result.summary);
+            } else if (type === 'meaning') setAIResponse(result.marketImpact || result.summary);
             else if (type === 'impact') {
-                const points = result.keyPoints?.length ? '\n\n• ' + result.keyPoints.join('\n• ') : '';
-                setAIResponse(`${result.summary}${points}`);
+                const stocks = result.affectedStocks?.length ? '\n\nEtkilenen: ' + result.affectedStocks.join(', ') : '';
+                setAIResponse(`${result.summary}${stocks}`);
             }
         } catch {
             setAIResponse('AI analizi yapılamadı. Lütfen tekrar deneyin.');
@@ -170,18 +176,9 @@ export default function News() {
         setIsLoading(false);
     };
 
-    // Open news reader drawer
-    const openReader = async (article) => {
+    // Open news reader modal
+    const openReader = (article) => {
         setReaderArticle(article);
-        setReaderAI(null);
-        setReaderLoading(true);
-        try {
-            const result = await fetchAIAnalysis(article.headline, article.source, article.preview);
-            setReaderAI(result);
-        } catch {
-            setReaderAI({ summary: 'Analiz yapılamadı.', keyPoints: [], sentiment: 'neutral', marketImpact: '' });
-        }
-        setReaderLoading(false);
     };
 
     const closeAIPanel = () => {
@@ -259,7 +256,15 @@ export default function News() {
                             <div className="news-content">
                             {/* Header */}
                             <div className="news-meta">
-                                <span className="news-source">{article.source}</span>
+                                {(() => {
+                                    const si = getSourceInfo(article.sourceId);
+                                    return (
+                                        <span className="source-indicator">
+                                            <span className="source-indicator-dot" style={{ background: si.color }}>{si.label.charAt(0)}</span>
+                                            <span className="news-source" style={{ color: si.color }}>{si.label}</span>
+                                        </span>
+                                    );
+                                })()}
                                 <span className="news-dot">·</span>
                                 <span className="news-time">
                                     <Clock size={12} />
@@ -289,21 +294,21 @@ export default function News() {
                             <div className="news-actions">
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'summarize' ? 'active' : ''}`}
-                                    onClick={() => handleAIAction(article.id, 'summarize', article.headline, article.source, article.preview)}
+                                    onClick={() => handleAIAction(article.id, 'summarize', article.headline, article.source, article.preview, article.language)}
                                 >
                                     <Sparkles size={14} />
                                     Özetle
                                 </button>
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'meaning' ? 'active' : ''}`}
-                                    onClick={() => handleAIAction(article.id, 'meaning', article.headline, article.source, article.preview)}
+                                    onClick={() => handleAIAction(article.id, 'meaning', article.headline, article.source, article.preview, article.language)}
                                 >
                                     <HelpCircle size={14} />
                                     Ne anlama geliyor?
                                 </button>
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'impact' ? 'active' : ''}`}
-                                    onClick={() => handleAIAction(article.id, 'impact', article.headline, article.source, article.preview)}
+                                    onClick={() => handleAIAction(article.id, 'impact', article.headline, article.source, article.preview, article.language)}
                                 >
                                     <TrendingUp size={14} />
                                     Piyasa etkisi?
@@ -340,80 +345,12 @@ export default function News() {
                 ))}
             </section>
 
-            {/* News Reader Drawer */}
+            {/* News Reader Modal */}
             {readerArticle && (
-                <>
-                    <div className="reader-overlay" onClick={() => setReaderArticle(null)} />
-                    <div className="reader-drawer">
-                        <div className="reader-header">
-                            <div className="reader-meta">
-                                <span className="reader-source">{readerArticle.source}</span>
-                                <span className="reader-time">{readerArticle.timestamp}</span>
-                            </div>
-                            <button className="reader-close" onClick={() => setReaderArticle(null)}>
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <h2 className="reader-title">{readerArticle.headline}</h2>
-                        {readerArticle.preview && (
-                            <p className="reader-preview">{readerArticle.preview}</p>
-                        )}
-                        <a href={readerArticle.url} target="_blank" rel="noopener noreferrer" className="reader-original-link">
-                            <ExternalLink size={14} /> Orijinal haberi oku
-                        </a>
-
-                        <div className="reader-ai-section">
-                            <div className="reader-ai-header">
-                                <Sparkles size={16} />
-                                <span>Kamil AI Analizi</span>
-                            </div>
-
-                            {readerLoading ? (
-                                <div className="reader-ai-loading">
-                                    <Loader2 size={20} className="spin" />
-                                    <span>Haber analiz ediliyor...</span>
-                                </div>
-                            ) : readerAI ? (
-                                <div className="reader-ai-content">
-                                    <div className="reader-ai-summary">
-                                        <h4>Özet</h4>
-                                        <p>{readerAI.summary}</p>
-                                    </div>
-
-                                    {readerAI.keyPoints?.length > 0 && (
-                                        <div className="reader-ai-points">
-                                            <h4>Kritik Noktalar</h4>
-                                            <ul>
-                                                {readerAI.keyPoints.map((p, i) => (
-                                                    <li key={i}>{p}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
-
-                                    <div className="reader-ai-row">
-                                        <div className="reader-ai-badge">
-                                            <span className="badge-label">Sentiment</span>
-                                            <span className={`badge-value sentiment-${readerAI.sentiment}`}>
-                                                {readerAI.sentiment === 'positive' && <TrendingUp size={12} />}
-                                                {readerAI.sentiment === 'negative' && <TrendingDown size={12} />}
-                                                {readerAI.sentiment === 'neutral' && <Minus size={12} />}
-                                                {readerAI.sentiment}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {readerAI.marketImpact && (
-                                        <div className="reader-ai-impact">
-                                            <h4>Piyasa Etkisi</h4>
-                                            <p>{readerAI.marketImpact}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : null}
-                        </div>
-                    </div>
-                </>
+                <NewsReaderModal
+                    article={readerArticle}
+                    onClose={() => setReaderArticle(null)}
+                />
             )}
         </div>
     );
