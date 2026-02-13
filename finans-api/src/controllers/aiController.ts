@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { chat, summarizeNews, analyzeNewsEnhanced, analyzePortfolio } from '../services/ai/aiService';
+import { chat, summarizeNews, analyzeNewsEnhanced, analyzePortfolio, matchPortfolioNews } from '../services/ai/aiService';
 import { AppError } from '../utils/errors';
 
 export async function chatHandler(req: Request, res: Response): Promise<void> {
@@ -21,11 +21,11 @@ export async function summarizeHandler(req: Request, res: Response): Promise<voi
 }
 
 export async function analyzeNewsHandler(req: Request, res: Response): Promise<void> {
-  const { title, source, summary, language } = req.body;
+  const { title, source, summary, language, portfolioSymbols } = req.body;
   if (!title || typeof title !== 'string') {
     throw new AppError(400, 'Missing required field: title', 'MISSING_TITLE');
   }
-  const result = await analyzeNewsEnhanced(title, source, summary, language);
+  const result = await analyzeNewsEnhanced(title, source, summary, language, portfolioSymbols);
   res.json({ ok: true, result });
 }
 
@@ -36,4 +36,13 @@ export async function analyzeHandler(req: Request, res: Response): Promise<void>
   }
   const analysis = await analyzePortfolio(holdings);
   res.json({ ok: true, result: { analysis } });
+}
+
+export async function matchPortfolioNewsHandler(req: Request, res: Response): Promise<void> {
+  const { symbols, news } = req.body;
+  if (!Array.isArray(symbols) || !Array.isArray(news)) {
+    throw new AppError(400, 'Missing required fields: symbols (array) and news (array)', 'MISSING_FIELDS');
+  }
+  const matches = await matchPortfolioNews(symbols, news);
+  res.json({ ok: true, result: matches });
 }

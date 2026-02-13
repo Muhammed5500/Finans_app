@@ -769,14 +769,38 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.news-subheader {
-    padding: var(--space-3) var(--space-5);
+/* ── News Filter Tabs ── */
+.news-filter-tabs {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid #e6edf3;
+}
+
+.news-filter-btn {
+    padding: var(--space-1) var(--space-3);
+    background: transparent;
+    border: 1px solid #d0d7de;
+    border-radius: var(--radius-full);
     font-size: var(--text-xs);
     font-weight: var(--font-semibold);
+    font-family: inherit;
     color: #656d76;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid #e6edf3;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.news-filter-btn:hover {
+    background: #e6edf3;
+    color: #1f2328;
+}
+
+.news-filter-btn.active {
+    background: linear-gradient(135deg, #d4a017, #b8860b);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(212, 160, 23, 0.3);
 }
 
 .news-list {
@@ -834,6 +858,56 @@
 .news-item-source {
     font-size: var(--text-xs);
     color: #656d76;
+}
+
+/* ── Portfolio Badge & Symbol Chips ── */
+.news-item-matched {
+    background: rgba(212, 160, 23, 0.04);
+    border-left: 2px solid #d4a017;
+}
+
+.news-item-matched:hover {
+    background: rgba(212, 160, 23, 0.08);
+}
+
+.news-item-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.portfolio-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    background: linear-gradient(135deg, #d4a017, #b8860b);
+    border-radius: var(--radius-sm);
+    font-size: 9px;
+    font-weight: var(--font-bold);
+    color: #fff;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.portfolio-badge-symbols {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+.portfolio-symbol-chip {
+    display: inline-flex;
+    padding: 0 4px;
+    background: rgba(212, 160, 23, 0.15);
+    border: 1px solid rgba(212, 160, 23, 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 9px;
+    font-weight: var(--font-semibold);
+    font-family: var(--font-mono);
+    color: #b8860b;
+    white-space: nowrap;
 }
 
 .news-item-pct {

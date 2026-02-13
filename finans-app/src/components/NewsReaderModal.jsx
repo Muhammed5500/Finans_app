@@ -23,15 +23,20 @@ export default function NewsReaderModal({ article, onClose }) {
         setLoading(true);
         setAnalysis(null);
 
+        const payload = {
+            title: article.headline,
+            source: article.sourceDisplayName || article.source,
+            summary: article.preview,
+            language: article.language || 'en',
+        };
+        if (article.matchedSymbols?.length > 0) {
+            payload.portfolioSymbols = article.matchedSymbols;
+        }
+
         fetch('/api/ai/analyze-news', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                title: article.headline,
-                source: article.sourceDisplayName || article.source,
-                summary: article.preview,
-                language: article.language || 'en',
-            }),
+            body: JSON.stringify(payload),
         })
             .then(res => res.json())
             .then(json => {

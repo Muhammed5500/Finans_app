@@ -120,9 +120,12 @@ export default function MainLayout() {
       if (json.ok && json.result?.reply) {
         setChatHistory(prev => [...prev, { role: 'assistant', content: json.result.reply }]);
       } else {
+        const errMsg = typeof json.error === 'string'
+          ? json.error
+          : json.error?.message || 'Yanıt alınamadı. Lütfen tekrar deneyin.';
         setChatHistory(prev => [...prev, {
           role: 'assistant',
-          content: json.error || 'Yanıt alınamadı. Lütfen tekrar deneyin.',
+          content: errMsg,
         }]);
       }
     } catch {

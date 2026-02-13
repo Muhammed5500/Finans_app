@@ -133,6 +133,7 @@ export async function analyzeNewsEnhanced(
   source?: string,
   summary?: string,
   language?: string,
+  portfolioSymbols?: string[],
 ): Promise<NewsAnalysisResult> {
   const m = getModel();
   const lang = language === 'tr' ? 'tr' : 'en';
@@ -141,9 +142,13 @@ export async function analyzeNewsEnhanced(
     ? 'Yanıtını Türkçe ver. Hisse sembolleri BIST formatında olsun (THYAO, GARAN, ASELS vb).'
     : 'Respond in English. Stock symbols should be in NYSE/NASDAQ format (AAPL, MSFT, TSLA etc).';
 
+  const portfolioInstruction = portfolioSymbols && portfolioSymbols.length > 0
+    ? `\n\nÖNEMLİ: Bu haber kullanıcının portföyündeki [${portfolioSymbols.join(', ')}] varlıklarıyla ilgili. Analizine kişiselleştirilmiş bir girişle başla ve bu varlıkların nasıl etkilenebileceğini özellikle belirt.`
+    : '';
+
   const prompt = `${SYSTEM_PROMPT}
 
-Aşağıdaki finans haberini detaylı analiz et. ${langInstruction}
+Aşağıdaki finans haberini detaylı analiz et. ${langInstruction}${portfolioInstruction}
 
 Yanıtını SADECE geçerli JSON olarak ver, başka hiçbir şey ekleme:
 
@@ -232,4 +237,37 @@ Max 200 kelime, düz metin yaz. Sonuna "Bu bir yatırım tavsiyesi değildir." e
 
   const result = await m.generateContent(prompt);
   return result.response.text();
+}
+
+// ─── Portfolio News Matching ─────────────────────────────────────────────
+
+export async function matchPortfolioNews(
+  symbols: string[],
+  news: Array<{ id: string; title: string }>,
+): Promise<Record<string, string[]>> {
+  if (!symbols.length || !news.length) return {};
+
+  const m = getModel();
+
+  const newsBlock = news.map((n, i) => `${i + 1}. [${n.id}] ${n.title}`).join('\n');
+
+  const prompt = `Portföydeki semboller: [${symbols.join(', ')}]
+
+Aşağıdaki haberlerin hangisi hangi sembolle ilgili? Sadece doğrudan ilgili olanları eşleştir.
+
+Haberler:
+${newsBlock}
+
+Yanıtını SADECE geçerli JSON olarak ver, başka hiçbir şey ekleme.
+Format: {"haberIdsi": ["SEMBOL1", "SEMBOL2"]}
+Eşleşmeyen haberleri dahil etme. Hiç eşleşme yoksa boş obje {} döndür.`;
+
+  try {
+    const result = await m.generateContent(prompt);
+    const text = result.response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+  } catch { /* fall through */ }
+
+  return {};
 }

@@ -334,6 +334,11 @@ export default function Portfolio() {
     const newsTimerRef = useRef(null);
     const [newsReaderArticle, setNewsReaderArticle] = useState(null);
 
+    // Portfolio-news matching
+    const [portfolioMatches, setPortfolioMatches] = useState({});
+    const [matchLoading, setMatchLoading] = useState(false);
+    const [newsFilter, setNewsFilter] = useState('all');
+
     // Form
     const [formMarket, setFormMarket] = useState('us');
     const [formSymbol, setFormSymbol] = useState('');
@@ -496,6 +501,38 @@ export default function Portfolio() {
         if (top) setNewsCategory(top);
     }, []);
 
+    // ── Portfolio-News Matching via Gemini ──────────────────────────────
+    useEffect(() => {
+        if (holdings.length === 0 || news.length === 0) {
+            setPortfolioMatches({});
+            return;
+        }
+        let cancelled = false;
+        setMatchLoading(true);
+
+        const symbols = holdings.map(h => h.symbol);
+        const newsItems = news.map((n, i) => ({
+            id: n.id || String(i),
+            title: n.title,
+        }));
+
+        fetch('/api/ai/match-portfolio-news', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols, news: newsItems }),
+        })
+            .then(res => res.json())
+            .then(json => {
+                if (!cancelled && json.ok && json.result) {
+                    setPortfolioMatches(json.result);
+                }
+            })
+            .catch(() => { /* silent */ })
+            .finally(() => { if (!cancelled) setMatchLoading(false); });
+
+        return () => { cancelled = true; };
+    }, [holdings, news]);
+
     // ── Add Holding ─────────────────────────────────────────────────────
     const handleAddHolding = async (e) => {
         e.preventDefault();
@@ -552,6 +589,27 @@ export default function Portfolio() {
         const pl = val - cost;
         return { totalValue: val, totalCost: cost, totalPL: pl, totalPLPercent: cost > 0 ? (pl / cost) * 100 : 0 };
     }, [enrichedHoldings]);
+
+    // ── Sorted & filtered news ─────────────────────────────────────────
+    const displayedNews = useMemo(() => {
+        const enriched = news.map((item, i) => {
+            const id = item.id || String(i);
+            const matchedSymbols = portfolioMatches[id] || [];
+            return { ...item, _id: id, matchedSymbols };
+        });
+
+        // Matched news first, then the rest
+        const sorted = [...enriched].sort((a, b) => {
+            const aMatch = a.matchedSymbols.length > 0 ? 1 : 0;
+            const bMatch = b.matchedSymbols.length > 0 ? 1 : 0;
+            return bMatch - aMatch;
+        });
+
+        if (newsFilter === 'portfolio') {
+            return sorted.filter(n => n.matchedSymbols.length > 0);
+        }
+        return sorted;
+    }, [news, portfolioMatches, newsFilter]);
 
     // ── Holdings grouped by market ─────────────────────────────────────
     const holdingsByMarket = useMemo(() => {
@@ -961,7 +1019,16 @@ export default function Portfolio() {
                         </div>
                     </div>
 
-                    <div className="news-subheader">News</div>
+                    <div className="news-filter-tabs">
+                        <button
+                            className={`news-filter-btn ${newsFilter === 'all' ? 'active' : ''}`}
+                            onClick={() => setNewsFilter('all')}
+                        >Tüm Piyasalar</button>
+                        <button
+                            className={`news-filter-btn ${newsFilter === 'portfolio' ? 'active' : ''}`}
+                            onClick={() => setNewsFilter('portfolio')}
+                        >Sadece Portföyüm</button>
+                    </div>
 
                     <div className="news-list">
                         {newsLoading ? (
@@ -974,14 +1041,17 @@ export default function Portfolio() {
                                     </div>
                                 </div>
                             ))
-                        ) : news.length === 0 ? (
-                            <div className="news-empty">No news available</div>
+                        ) : displayedNews.length === 0 ? (
+                            <div className="news-empty">
+                                {newsFilter === 'portfolio' ? 'Portföyünüzle ilgili haber bulunamadı' : 'No news available'}
+                            </div>
                         ) : (
-                            news.map((item, i) => {
+                            displayedNews.map((item, i) => {
                                 const si = getSourceInfo(item.source);
+                                const hasMatch = item.matchedSymbols.length > 0;
                                 return (
-                                    <button key={item.id || i}
-                                        className="news-item"
+                                    <button key={item._id || i}
+                                        className={`news-item ${hasMatch ? 'news-item-matched' : ''}`}
                                         onClick={() => setNewsReaderArticle({
                                             id: item.id,
                                             headline: item.title,
@@ -993,6 +1063,7 @@ export default function Portfolio() {
                                             imageUrl: item.imageUrl,
                                             timestamp: relativeTime(item.publishedAt),
                                             language: item.language || 'en',
+                                            matchedSymbols: hasMatch ? item.matchedSymbols : undefined,
                                         })}
                                     >
                                         <div className="news-avatar" style={{ background: si.color }}>
@@ -1000,7 +1071,21 @@ export default function Portfolio() {
                                         </div>
                                         <div className="news-item-info">
                                             <span className="news-item-title">{item.title}</span>
-                                            <span className="news-item-source">{si.label}</span>
+                                            <div className="news-item-meta">
+                                                <span className="news-item-source">{si.label}</span>
+                                                {hasMatch && (
+                                                    <span className="portfolio-badge">
+                                                        PORTFÖYÜNLE İLGİLİ
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {hasMatch && (
+                                                <div className="portfolio-badge-symbols">
+                                                    {item.matchedSymbols.map(s => (
+                                                        <span key={s} className="portfolio-symbol-chip">{s}</span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     </button>
                                 );
