@@ -59,34 +59,17 @@ const tabs = [
     { id: 'economy', label: 'Economy' },
 ];
 
-// AI response generator (simulated)
-const getAIResponse = (type, headline) => {
-    const responses = {
-        summarize: {
-            'Bitcoin ETF Inflows Reach $1.2 Billion in Single Week':
-                'Institutional investors are continuing to buy Bitcoin through regulated ETF products. The $1.2B weekly inflow suggests sustained demand from traditional finance. BlackRock\'s fund is leading, which indicates major institutions are comfortable with Bitcoin as an asset class.',
-            'Fed Signals Patience on Rate Cuts, Markets Adjust Expectations':
-                'The Federal Reserve is indicating it won\'t rush to cut interest rates. Markets had been expecting cuts sooner, but now need to adjust. This typically means higher borrowing costs for longer, which can pressure growth stocks and benefit savers.',
-            'default': 'This news discusses recent market developments. The key takeaway is that market conditions are evolving based on new information. Investors should consider how this aligns with their investment thesis and time horizon.'
-        },
-        meaning: {
-            'Bitcoin ETF Inflows Reach $1.2 Billion in Single Week':
-                'For you as an investor: More institutional money in Bitcoin ETFs could support prices and reduce volatility over time. It also signals that Bitcoin is becoming a more accepted part of diversified portfolios. However, large inflows can sometimes precede short-term pullbacks.',
-            'Fed Signals Patience on Rate Cuts, Markets Adjust Expectations':
-                'For you as an investor: Higher interest rates for longer means savings accounts and bonds become more attractive. Growth stocks and real estate may face some pressure. If you have variable-rate debt, costs may stay elevated. Consider reviewing your asset allocation.',
-            'default': 'This news may affect your portfolio depending on your holdings. Consider whether your current investment strategy accounts for these developments. If unsure, maintaining a diversified approach typically provides resilience.'
-        },
-        impact: {
-            'Bitcoin ETF Inflows Reach $1.2 Billion in Single Week':
-                'Potential impacts: (+) Positive for BTC price support, (+) May increase legitimacy of crypto assets, (+) Could attract more institutional products. (-) Large inflows sometimes signal short-term tops, (-) Regulatory scrutiny may increase.',
-            'Fed Signals Patience on Rate Cuts, Markets Adjust Expectations':
-                'Potential impacts: (-) Negative for growth stocks in short term, (-) Higher mortgage/loan rates persist, (+) Positive for bank margins, (+) Good for fixed income yields, (=) Neutral for companies with strong cash flows.',
-            'default': 'Market impact will depend on how participants interpret this news. Historically, markets price in expected changes, so surprises tend to have the largest effects. Monitor related assets for confirmation of any trend.'
-        }
-    };
-
-    return responses[type][headline] || responses[type]['default'];
-};
+// Fetch AI analysis from Gemini backend
+async function fetchAIAnalysis(headline, source, preview) {
+    const res = await fetch('/api/ai/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: headline, source, summary: preview }),
+    });
+    const json = await res.json();
+    if (json.ok && json.result) return json.result;
+    throw new Error('AI analysis failed');
+}
 
 const FEED_LIMIT = 20;
 
@@ -97,10 +80,15 @@ export default function News() {
     const [activeTab, setActiveTab] = useState('crypto');
     const [activeAI, setActiveAI] = useState(null); // { newsId, type }
     const [aiResponse, setAIResponse] = useState('');
+    const [aiCache, setAiCache] = useState({}); // cache AI results per newsId
     const [isLoading, setIsLoading] = useState(false);
     const [newsByTab, setNewsByTab] = useState({});
     const [loadingByTab, setLoadingByTab] = useState({});
     const [errorByTab, setErrorByTab] = useState({});
+    // News reader drawer
+    const [readerArticle, setReaderArticle] = useState(null);
+    const [readerAI, setReaderAI] = useState(null);
+    const [readerLoading, setReaderLoading] = useState(false);
 
     const fetchNews = useCallback(async (tabId, silent = false) => {
         const category = TAB_TO_CATEGORY[tabId] ?? tabId;
@@ -144,22 +132,56 @@ export default function News() {
     const isLoadingFeed = loadingByTab[activeTab];
     const feedError = errorByTab[activeTab];
 
-    const handleAIAction = (newsId, type, headline) => {
+    const handleAIAction = async (newsId, type, headline, source, preview) => {
         if (activeAI?.newsId === newsId && activeAI?.type === type) {
-            // Toggle off if same action
             setActiveAI(null);
             setAIResponse('');
             return;
         }
 
-        setIsLoading(true);
         setActiveAI({ newsId, type });
+        setAIResponse('');
 
-        // Simulate AI response delay
-        setTimeout(() => {
-            setAIResponse(getAIResponse(type, headline));
-            setIsLoading(false);
-        }, 800);
+        // Use cached result if available
+        if (aiCache[newsId]) {
+            const cached = aiCache[newsId];
+            if (type === 'summarize') setAIResponse(cached.summary);
+            else if (type === 'meaning') setAIResponse(cached.marketImpact || cached.summary);
+            else if (type === 'impact') {
+                const points = cached.keyPoints?.length ? '\n\n• ' + cached.keyPoints.join('\n• ') : '';
+                setAIResponse(`${cached.summary}${points}`);
+            }
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const result = await fetchAIAnalysis(headline, source, preview);
+            setAiCache(prev => ({ ...prev, [newsId]: result }));
+            if (type === 'summarize') setAIResponse(result.summary);
+            else if (type === 'meaning') setAIResponse(result.marketImpact || result.summary);
+            else if (type === 'impact') {
+                const points = result.keyPoints?.length ? '\n\n• ' + result.keyPoints.join('\n• ') : '';
+                setAIResponse(`${result.summary}${points}`);
+            }
+        } catch {
+            setAIResponse('AI analizi yapılamadı. Lütfen tekrar deneyin.');
+        }
+        setIsLoading(false);
+    };
+
+    // Open news reader drawer
+    const openReader = async (article) => {
+        setReaderArticle(article);
+        setReaderAI(null);
+        setReaderLoading(true);
+        try {
+            const result = await fetchAIAnalysis(article.headline, article.source, article.preview);
+            setReaderAI(result);
+        } catch {
+            setReaderAI({ summary: 'Analiz yapılamadı.', keyPoints: [], sentiment: 'neutral', marketImpact: '' });
+        }
+        setReaderLoading(false);
     };
 
     const closeAIPanel = () => {
@@ -254,10 +276,10 @@ export default function News() {
 
                             {/* Headline */}
                             <h3 className="news-headline">
-                                <a href={article.url} target="_blank" rel="noopener noreferrer">
+                                <button className="headline-btn" onClick={() => openReader(article)}>
                                     {article.headline}
-                                    <ExternalLink size={14} className="external-icon" />
-                                </a>
+                                    <Sparkles size={14} className="headline-ai-icon" />
+                                </button>
                             </h3>
 
                             {/* Preview */}
@@ -267,24 +289,24 @@ export default function News() {
                             <div className="news-actions">
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'summarize' ? 'active' : ''}`}
-                                    onClick={() => handleAIAction(article.id, 'summarize', article.headline)}
+                                    onClick={() => handleAIAction(article.id, 'summarize', article.headline, article.source, article.preview)}
                                 >
                                     <Sparkles size={14} />
-                                    Summarize
+                                    Özetle
                                 </button>
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'meaning' ? 'active' : ''}`}
-                                    onClick={() => handleAIAction(article.id, 'meaning', article.headline)}
+                                    onClick={() => handleAIAction(article.id, 'meaning', article.headline, article.source, article.preview)}
                                 >
                                     <HelpCircle size={14} />
-                                    What does this mean?
+                                    Ne anlama geliyor?
                                 </button>
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'impact' ? 'active' : ''}`}
-                                    onClick={() => handleAIAction(article.id, 'impact', article.headline)}
+                                    onClick={() => handleAIAction(article.id, 'impact', article.headline, article.source, article.preview)}
                                 >
                                     <TrendingUp size={14} />
-                                    Market impact?
+                                    Piyasa etkisi?
                                 </button>
                             </div>
                             </div>
@@ -317,6 +339,82 @@ export default function News() {
                     </article>
                 ))}
             </section>
+
+            {/* News Reader Drawer */}
+            {readerArticle && (
+                <>
+                    <div className="reader-overlay" onClick={() => setReaderArticle(null)} />
+                    <div className="reader-drawer">
+                        <div className="reader-header">
+                            <div className="reader-meta">
+                                <span className="reader-source">{readerArticle.source}</span>
+                                <span className="reader-time">{readerArticle.timestamp}</span>
+                            </div>
+                            <button className="reader-close" onClick={() => setReaderArticle(null)}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <h2 className="reader-title">{readerArticle.headline}</h2>
+                        {readerArticle.preview && (
+                            <p className="reader-preview">{readerArticle.preview}</p>
+                        )}
+                        <a href={readerArticle.url} target="_blank" rel="noopener noreferrer" className="reader-original-link">
+                            <ExternalLink size={14} /> Orijinal haberi oku
+                        </a>
+
+                        <div className="reader-ai-section">
+                            <div className="reader-ai-header">
+                                <Sparkles size={16} />
+                                <span>Kamil AI Analizi</span>
+                            </div>
+
+                            {readerLoading ? (
+                                <div className="reader-ai-loading">
+                                    <Loader2 size={20} className="spin" />
+                                    <span>Haber analiz ediliyor...</span>
+                                </div>
+                            ) : readerAI ? (
+                                <div className="reader-ai-content">
+                                    <div className="reader-ai-summary">
+                                        <h4>Özet</h4>
+                                        <p>{readerAI.summary}</p>
+                                    </div>
+
+                                    {readerAI.keyPoints?.length > 0 && (
+                                        <div className="reader-ai-points">
+                                            <h4>Kritik Noktalar</h4>
+                                            <ul>
+                                                {readerAI.keyPoints.map((p, i) => (
+                                                    <li key={i}>{p}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    <div className="reader-ai-row">
+                                        <div className="reader-ai-badge">
+                                            <span className="badge-label">Sentiment</span>
+                                            <span className={`badge-value sentiment-${readerAI.sentiment}`}>
+                                                {readerAI.sentiment === 'positive' && <TrendingUp size={12} />}
+                                                {readerAI.sentiment === 'negative' && <TrendingDown size={12} />}
+                                                {readerAI.sentiment === 'neutral' && <Minus size={12} />}
+                                                {readerAI.sentiment}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {readerAI.marketImpact && (
+                                        <div className="reader-ai-impact">
+                                            <h4>Piyasa Etkisi</h4>
+                                            <p>{readerAI.marketImpact}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }

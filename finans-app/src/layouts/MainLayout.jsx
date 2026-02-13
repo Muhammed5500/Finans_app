@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
   Briefcase,
@@ -7,13 +7,16 @@ import {
   Settings,
   Search,
   User,
-  MessageCircle,
   X,
   Send,
-  Menu
+  Menu,
+  Loader2,
+  Bot,
 } from 'lucide-react';
 import CommandPalette from '../components/CommandPalette';
 import './MainLayout.css';
+
+const PORTFOLIO_STORAGE_KEY = 'finans_portfolio_holdings';
 
 const navigation = [
   { name: 'Portfolio', href: '/', icon: Briefcase },
@@ -23,10 +26,10 @@ const navigation = [
 ];
 
 const exampleQuestions = [
-  "What does an interest rate hike mean?",
-  "Is high inflation good or bad for stocks?",
-  "How do I diversify my portfolio?",
-  "What's the difference between ETFs and mutual funds?"
+  "Portföyüm dengeli mi?",
+  "Faiz artışı ne demek?",
+  "Portföyümü nasıl çeşitlendirebilirim?",
+  "Bugün piyasalarda ne oldu?",
 ];
 
 export default function MainLayout() {
@@ -34,10 +37,13 @@ export default function MainLayout() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const messagesEndRef = useRef(null);
+  const chatInputRef = useRef(null);
   const location = useLocation();
 
+  // Ctrl+K for command palette
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -49,42 +55,90 @@ export default function MainLayout() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Auto-scroll chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory]);
+  }, [chatHistory, chatLoading]);
 
   // Close mobile menu on route change
+  useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
+
+  // Focus input when chat opens
   useEffect(() => {
-    setMobileMenuOpen(false);
+    if (chatOpen) setTimeout(() => chatInputRef.current?.focus(), 300);
+  }, [chatOpen]);
+
+  // Listen for custom event from News page to open chat with context
+  useEffect(() => {
+    const handler = (e) => {
+      const { message } = e.detail || {};
+      if (message) {
+        setChatOpen(true);
+        setChatMessage(message);
+      }
+    };
+    window.addEventListener('kamil-ai-ask', handler);
+    return () => window.removeEventListener('kamil-ai-ask', handler);
+  }, []);
+
+  // ─── Build context from localStorage + current page ────────────
+  const buildContext = useCallback(() => {
+    const ctx = { currentPage: location.pathname };
+    try {
+      const raw = localStorage.getItem(PORTFOLIO_STORAGE_KEY);
+      if (raw) {
+        const holdings = JSON.parse(raw);
+        ctx.holdings = holdings.map(h => ({
+          symbol: h.symbol,
+          market: h.market,
+          quantity: h.quantity,
+          avgCost: h.avgCost,
+        }));
+      }
+    } catch { /* ignore */ }
+    return ctx;
   }, [location.pathname]);
 
-  const handleSendMessage = (e) => {
+  // ─── Send message to Gemini ─────────────────────────────────────
+  const handleSendMessage = useCallback(async (e) => {
     e.preventDefault();
-    if (!chatMessage.trim()) return;
-    const userMsg = chatMessage.trim();
-    setChatMessage('');
-    setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
-    setTimeout(() => {
-      const response = getAIResponse(userMsg);
-      setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
-    }, 800);
-  };
+    const msg = chatMessage.trim();
+    if (!msg || chatLoading) return;
 
-  const getAIResponse = (question) => {
-    const q = question.toLowerCase();
-    if (q.includes('interest rate') || q.includes('rate hike')) {
-      return "An interest rate hike is when central banks increase the cost of borrowing money. This typically slows economic growth by making loans more expensive, which can reduce inflation. For investors, higher rates often lead to lower stock valuations, as future earnings become less valuable in present terms. Bond yields typically rise, which can make fixed-income investments more attractive.";
+    setChatMessage('');
+    setChatHistory(prev => [...prev, { role: 'user', content: msg }]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, context: buildContext() }),
+      });
+      const json = await res.json();
+
+      if (json.ok && json.result?.reply) {
+        setChatHistory(prev => [...prev, { role: 'assistant', content: json.result.reply }]);
+      } else {
+        setChatHistory(prev => [...prev, {
+          role: 'assistant',
+          content: json.error || 'Yanıt alınamadı. Lütfen tekrar deneyin.',
+        }]);
+      }
+    } catch {
+      setChatHistory(prev => [...prev, {
+        role: 'assistant',
+        content: 'Bağlantı hatası. finans-api sunucusunun çalıştığından emin olun.',
+      }]);
     }
-    if (q.includes('inflation') && q.includes('stock')) {
-      return "The relationship between inflation and stocks is nuanced. Moderate inflation (2-3%) is generally healthy for equities, as it reflects growing demand. However, high inflation erodes purchasing power and can compress profit margins. During high inflation, value stocks and commodities often outperform growth stocks. Real assets like real estate and certain sectors like energy tend to provide better inflation hedges.";
-    }
-    if (q.includes('diversif')) {
-      return "Portfolio diversification means spreading investments across different asset classes, sectors, and geographies to reduce risk. A well-diversified portfolio might include domestic and international stocks, bonds with varying maturities, real estate, and commodities. The goal is to ensure that poor performance in one area doesn't disproportionately impact your overall returns.";
-    }
-    if (q.includes('etf') && q.includes('mutual')) {
-      return "ETFs and mutual funds both offer diversification, but differ in key ways. ETFs trade on exchanges like stocks, allowing intraday buying and selling at market prices. They typically have lower expense ratios and are more tax-efficient. Mutual funds are priced once daily and may have minimum investment requirements.";
-    }
-    return "That's a thoughtful question about financial markets. Understanding market fundamentals, maintaining a long-term perspective, and staying informed about economic indicators are key to making sound investment decisions. Would you like me to elaborate on any specific aspect?";
+
+    setChatLoading(false);
+  }, [chatMessage, chatLoading, buildContext]);
+
+  // ─── Quick-fill example question ────────────────────────────────
+  const handleExampleClick = (q) => {
+    setChatMessage(q);
+    chatInputRef.current?.focus();
   };
 
   return (
@@ -169,18 +223,24 @@ export default function MainLayout() {
       <button
         className={`ai-fab ${chatOpen ? 'hidden' : ''}`}
         onClick={() => setChatOpen(true)}
-        aria-label="Ask Finance AI"
+        aria-label="Kamil AI"
       >
-        <MessageCircle size={22} />
+        <Bot size={22} />
       </button>
 
       {/* Command Palette */}
       <CommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
 
-      {/* AI Chat Panel */}
+      {/* Kamil AI Chat Panel */}
       <div className={`chat-panel ${chatOpen ? 'open' : ''}`}>
         <div className="chat-header">
-          <h3 className="chat-title">Ask Finance AI</h3>
+          <div className="chat-header-left">
+            <div className="chat-avatar"><Bot size={16} /></div>
+            <div>
+              <h3 className="chat-title">Kamil AI</h3>
+              <span className="chat-subtitle">Finans Asistanı</span>
+            </div>
+          </div>
           <button className="chat-close" onClick={() => setChatOpen(false)} aria-label="Close chat">
             <X size={18} />
           </button>
@@ -189,26 +249,38 @@ export default function MainLayout() {
         <div className="chat-messages">
           {chatHistory.length === 0 ? (
             <div className="chat-welcome">
-              <div className="welcome-icon"><MessageCircle size={32} /></div>
-              <h4>How can I help you?</h4>
-              <p>Ask me anything about finance, markets, or economics.</p>
+              <div className="welcome-icon"><Bot size={32} /></div>
+              <h4>Merhaba, ben Kamil AI</h4>
+              <p>Portföyün, piyasalar veya finans hakkında her şeyi sorabilirsin.</p>
             </div>
           ) : (
             chatHistory.map((msg, idx) => (
               <div key={idx} className={`chat-message ${msg.role}`}>
+                {msg.role === 'assistant' && (
+                  <div className="msg-avatar"><Bot size={14} /></div>
+                )}
                 <div className="message-bubble">{msg.content}</div>
               </div>
             ))
+          )}
+          {chatLoading && (
+            <div className="chat-message assistant">
+              <div className="msg-avatar"><Bot size={14} /></div>
+              <div className="message-bubble typing">
+                <Loader2 size={14} className="spin" />
+                <span>Düşünüyorum...</span>
+              </div>
+            </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
         {chatHistory.length === 0 && (
           <div className="chat-examples">
-            <span className="examples-label">Try asking:</span>
+            <span className="examples-label">Bunları sorabilirsin:</span>
             <div className="examples-list">
-              {exampleQuestions.slice(0, 2).map((q, idx) => (
-                <button key={idx} className="example-btn" onClick={() => setChatMessage(q)}>
+              {exampleQuestions.map((q, idx) => (
+                <button key={idx} className="example-btn" onClick={() => handleExampleClick(q)}>
                   {q}
                 </button>
               ))}
@@ -218,13 +290,20 @@ export default function MainLayout() {
 
         <form className="chat-input-form" onSubmit={handleSendMessage}>
           <input
+            ref={chatInputRef}
             type="text"
             className="chat-input"
-            placeholder="Ask anything about finance..."
+            placeholder="Kamil AI'a sor..."
             value={chatMessage}
             onChange={(e) => setChatMessage(e.target.value)}
+            disabled={chatLoading}
           />
-          <button type="submit" className="chat-send-btn" disabled={!chatMessage.trim()} aria-label="Send">
+          <button
+            type="submit"
+            className="chat-send-btn"
+            disabled={!chatMessage.trim() || chatLoading}
+            aria-label="Send"
+          >
             <Send size={18} />
           </button>
         </form>

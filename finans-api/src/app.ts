@@ -10,6 +10,7 @@ import usRoutes from './routes/usRoutes';
 import newsRoutes from './routes/newsRoutes';
 import marketsRoutes from './routes/marketsRoutes';
 import yahooRoutes from './routes/yahooRoutes';
+import aiRoutes from './routes/aiRoutes';
 import { errorHandler } from './middleware/errorHandler';
 import { apiRateLimiter } from './middleware/rateLimiter';
 import { AppError } from './utils/errors';
@@ -42,6 +43,7 @@ app.use('/api/us', apiRateLimiter, usRoutes);         // /api/us/* (rate limited
 app.use('/api/news', apiRateLimiter, newsRoutes);     // /api/news/* (rate limited)
 app.use('/api/markets', apiRateLimiter, marketsRoutes); // /api/markets/* (rate limited)
 app.use('/api/yahoo', apiRateLimiter, yahooRoutes);     // /api/yahoo/* (rate limited)
+app.use('/api/ai', apiRateLimiter, aiRoutes);           // /api/ai/* (rate limited)
 
 // 404 handler
 app.use((_req, _res, next) =>
