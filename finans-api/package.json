@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "npx prisma generate && tsc",
+    "build": "npm install --include=dev && npx prisma generate && tsc",
     "start": "node dist/server.js",
     "smoke:bist": "ts-node scripts/smoke-bist.ts",
     "smoke:us": "ts-node scripts/smoke-us.ts"
