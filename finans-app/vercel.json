@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://RENDER_BACKEND_URL/api/:path*"
+      "destination": "https://finans-api-da4v.onrender.com/api/:path*"
     },
     {
       "source": "/((?!api/).*)",
