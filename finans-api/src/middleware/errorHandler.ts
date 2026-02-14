@@ -11,10 +11,8 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  // Log error in development
-  if (process.env.NODE_ENV === 'development') {
-    console.error('[Error]', err);
-  }
+  // Always log errors for debugging
+  console.error('[Error]', err.message, err.stack);
 
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
