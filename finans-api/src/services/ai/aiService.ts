@@ -1,25 +1,49 @@
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { AppError } from '../../utils/errors';
 
-let model: GenerativeModel | null = null;
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const MODEL = 'google/gemini-2.0-flash-001';
 
-function getModel(): GenerativeModel {
-  if (!model) {
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-  }
-  return model;
+function getApiKey(): string {
+  const key = process.env.OPENROUTER_API_KEY || '';
+  if (!key) throw new Error('OPENROUTER_API_KEY is not configured');
+  return key;
 }
 
-function handleGeminiError(err: unknown): never {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes('429') || msg.includes('quota') || msg.includes('Too Many Requests')) {
-    throw new AppError(429, 'AI quota limit exceeded. Please wait a moment and try again.', 'AI_RATE_LIMIT');
+async function callAI(messages: Array<{ role: string; content: string }>): Promise<string> {
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getApiKey()}`,
+      'HTTP-Referer': 'https://finans-app-ashen.vercel.app',
+      'X-Title': 'Kamil Finance',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+    if (res.status === 429) {
+      throw new AppError(429, 'AI quota limit exceeded. Please wait a moment and try again.', 'AI_RATE_LIMIT');
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new AppError(503, 'AI service is currently unavailable. Please check API key.', 'AI_AUTH_ERROR');
+    }
+    throw new AppError(502, `AI service error: ${errorBody}`, 'AI_ERROR');
   }
-  if (msg.includes('403') || msg.includes('API key')) {
-    throw new AppError(503, 'AI service is currently unavailable. Please check API key.', 'AI_AUTH_ERROR');
+
+  const json: any = await res.json();
+  return json.choices?.[0]?.message?.content || '';
+}
+
+function handleAIError(err: unknown): never {
+  if (err instanceof AppError) throw err;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('429') || msg.includes('quota')) {
+    throw new AppError(429, 'AI quota limit exceeded. Please wait a moment and try again.', 'AI_RATE_LIMIT');
   }
   throw new AppError(502, 'Could not get a response from the AI service. Please try again.', 'AI_ERROR');
 }
@@ -65,8 +89,6 @@ export interface NewsSummaryResult {
 // ─── Chat ─────────────────────────────────────────────────────────────────
 
 export async function chat(message: string, context?: ChatContext): Promise<string> {
-  const m = getModel();
-
   let contextBlock = '';
 
   if (context?.holdings && context.holdings.length > 0) {
@@ -88,12 +110,13 @@ export async function chat(message: string, context?: ChatContext): Promise<stri
     contextBlock += `\n\n[User is currently on the "${context.currentPage}" page]`;
   }
 
-  const prompt = `${SYSTEM_PROMPT}${contextBlock}\n\nUser: ${message}\n\nKamil AI:`;
   try {
-    const result = await m.generateContent(prompt);
-    return result.response.text();
+    return await callAI([
+      { role: 'system', content: SYSTEM_PROMPT + contextBlock },
+      { role: 'user', content: message },
+    ]);
   } catch (err) {
-    handleGeminiError(err);
+    handleAIError(err);
   }
 }
 
@@ -104,11 +127,7 @@ export async function summarizeNews(
   source?: string,
   summary?: string,
 ): Promise<NewsSummaryResult> {
-  const m = getModel();
-
-  const prompt = `${SYSTEM_PROMPT}
-
-Analyze the following news article and respond ONLY with valid JSON, nothing else:
+  const userPrompt = `Analyze the following news article and respond ONLY with valid JSON, nothing else:
 
 Headline: ${title}
 ${source ? `Source: ${source}` : ''}
@@ -124,10 +143,12 @@ JSON format:
 
   let text: string;
   try {
-    const result = await m.generateContent(prompt);
-    text = result.response.text();
+    text = await callAI([
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userPrompt },
+    ]);
   } catch (err) {
-    handleGeminiError(err);
+    handleAIError(err);
   }
 
   try {
@@ -156,17 +177,13 @@ export async function analyzeNewsEnhanced(
   language?: string,
   portfolioSymbols?: string[],
 ): Promise<NewsAnalysisResult> {
-  const m = getModel();
-
   const langInstruction = 'Respond in English. Stock symbols should be in NYSE/NASDAQ format (AAPL, MSFT, TSLA etc).';
 
   const portfolioInstruction = portfolioSymbols && portfolioSymbols.length > 0
     ? `\n\nIMPORTANT: This news is related to the user's portfolio holdings [${portfolioSymbols.join(', ')}]. Start your analysis with a personalized introduction and specifically highlight how these assets may be affected.`
     : '';
 
-  const prompt = `${SYSTEM_PROMPT}
-
-Analyze the following financial news in detail. ${langInstruction}${portfolioInstruction}
+  const userPrompt = `Analyze the following financial news in detail. ${langInstruction}${portfolioInstruction}
 
 Respond ONLY with valid JSON, nothing else:
 
@@ -192,10 +209,12 @@ Rules:
 
   let text: string;
   try {
-    const result = await m.generateContent(prompt);
-    text = result.response.text();
+    text = await callAI([
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userPrompt },
+    ]);
   } catch (err) {
-    handleGeminiError(err);
+    handleAIError(err);
   }
 
   try {
@@ -222,8 +241,6 @@ export async function analyzePortfolio(
     return 'Your portfolio is empty. You can start by adding assets from the Portfolio page.';
   }
 
-  const m = getModel();
-
   const totalValue = holdings.reduce((s, h) => s + (h.currentValue ?? h.quantity * h.avgCost), 0);
   const totalCost = holdings.reduce((s, h) => s + h.quantity * h.avgCost, 0);
   const totalPL = totalValue - totalCost;
@@ -239,9 +256,7 @@ export async function analyzePortfolio(
     pl: h.profitLoss,
   }));
 
-  const prompt = `${SYSTEM_PROMPT}
-
-Analyze the user's portfolio:
+  const userPrompt = `Analyze the user's portfolio:
 
 Total Value: $${totalValue.toFixed(2)}
 Total Cost: $${totalCost.toFixed(2)}
@@ -259,10 +274,12 @@ Evaluate:
 Max 200 words, write in plain text. End with "This is not financial advice."`;
 
   try {
-    const result = await m.generateContent(prompt);
-    return result.response.text();
+    return await callAI([
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userPrompt },
+    ]);
   } catch (err) {
-    handleGeminiError(err);
+    handleAIError(err);
   }
 }
 
@@ -274,11 +291,9 @@ export async function matchPortfolioNews(
 ): Promise<Record<string, string[]>> {
   if (!symbols.length || !news.length) return {};
 
-  const m = getModel();
-
   const newsBlock = news.map((n, i) => `${i + 1}. [${n.id}] ${n.title}`).join('\n');
 
-  const prompt = `Portfolio symbols: [${symbols.join(', ')}]
+  const userPrompt = `Portfolio symbols: [${symbols.join(', ')}]
 
 Which of the following news articles are related to which symbol? Only match directly related ones.
 
@@ -291,10 +306,12 @@ Do not include unmatched news. If there are no matches, return an empty object {
 
   let text: string;
   try {
-    const result = await m.generateContent(prompt);
-    text = result.response.text();
+    text = await callAI([
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userPrompt },
+    ]);
   } catch (err) {
-    handleGeminiError(err);
+    handleAIError(err);
   }
 
   try {
