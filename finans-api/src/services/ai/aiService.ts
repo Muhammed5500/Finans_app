@@ -1,7 +1,7 @@
 import { AppError } from '../../utils/errors';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'google/gemini-2.0-flash-001';
+const MODEL = 'google/gemma-3-4b-it:free';
 
 function getApiKey(): string {
   const key = process.env.OPENROUTER_API_KEY || '';
