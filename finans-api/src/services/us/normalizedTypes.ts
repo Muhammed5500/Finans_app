@@ -6,7 +6,7 @@
 export type NormalizedUsQuote = {
   symbol: string;
   market: 'US';
-  source: 'finnhub';
+  source: 'finnhub' | 'yahoo';
   fetchedAt: string;
   stale?: boolean;
 

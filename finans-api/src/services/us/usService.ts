@@ -9,6 +9,7 @@ import { nowUnix, daysAgoUnix } from '../../utils/timeRange';
 import { normalizeUsSymbol } from '../../utils/usSymbols';
 import { createFinnhubClient, type FinnhubClient } from '../finnhub';
 import type { FinnhubQuote, FinnhubCandles } from '../finnhub/types';
+import { createYahooClient, type YahooClient } from '../yahoo';
 import { parseUsInterval, resolveUsInterval, parseRangeDays } from './usTypes';
 import type { NormalizedUsQuote, NormalizedUsChart, Candle } from './normalizedTypes';
 
@@ -105,6 +106,7 @@ type CachedChart = NormalizedUsChart;
 
 export class UsService {
   private readonly client: FinnhubClient;
+  private readonly yahooClient: YahooClient;
   private readonly quoteCache: TTLCache<CachedQuote>;
   private readonly chartCache: TTLCache<CachedChart>;
   private readonly inFlight: Map<string, Promise<unknown>>;
@@ -112,6 +114,7 @@ export class UsService {
 
   constructor(client?: FinnhubClient) {
     this.client = client ?? createFinnhubClient();
+    this.yahooClient = createYahooClient();
     this.quoteCache = createCache<CachedQuote>();
     this.chartCache = createCache<CachedChart>();
     this.inFlight = new Map();
@@ -158,6 +161,32 @@ export class UsService {
       if (stale) {
         return { ...stale.value, stale: true };
       }
+
+      // Fallback to Yahoo Finance
+      try {
+        const fetchedAt = new Date().toISOString();
+        const yq = await this.yahooClient.getGenericQuote(symbol);
+        const val: CachedQuote = {
+          symbol,
+          market: 'US',
+          source: 'yahoo',
+          fetchedAt,
+          price: yq.regularMarketPrice ?? null,
+          currency: 'USD',
+          open: yq.regularMarketOpen ?? null,
+          previousClose: yq.regularMarketPreviousClose ?? null,
+          dayHigh: yq.regularMarketDayHigh ?? null,
+          dayLow: yq.regularMarketDayLow ?? null,
+          change: yq.regularMarketChange ?? null,
+          changePercent: yq.regularMarketChangePercent ?? null,
+          timestamp: yq.regularMarketTime ? yq.regularMarketTime.toISOString() : null,
+        };
+        this.quoteCache.set(cacheKey, val, QUOTE_TTL_MS);
+        return val;
+      } catch {
+        // Yahoo also failed
+      }
+
       if (e instanceof AppError) throw e;
       throw new AppError(502, 'Data provider is temporarily unavailable', 'PROVIDER_ERROR');
     }

@@ -40,11 +40,12 @@ async function callAI(messages: Array<{ role: string; content: string }>): Promi
 
   if (!res.ok) {
     const errorBody = await res.text();
+    console.error(`[AI] OpenRouter error ${res.status}:`, errorBody);
     if (res.status === 429) {
-      throw new AppError(429, 'AI quota limit exceeded. Please wait a moment and try again.', 'AI_RATE_LIMIT');
+      throw new AppError(429, `AI quota limit exceeded: ${errorBody}`, 'AI_RATE_LIMIT');
     }
     if (res.status === 401 || res.status === 403) {
-      throw new AppError(503, 'AI service is currently unavailable. Please check API key.', 'AI_AUTH_ERROR');
+      throw new AppError(503, `AI auth error: ${errorBody}`, 'AI_AUTH_ERROR');
     }
     throw new AppError(502, `AI service error: ${errorBody}`, 'AI_ERROR');
   }
