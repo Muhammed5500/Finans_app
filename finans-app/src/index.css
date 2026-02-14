@@ -396,10 +396,19 @@ a:hover {
    7. Interactive Elements
    ===================================================== */
 
-/* Focus styles */
+/* Focus styles — only show on keyboard navigation, not mouse click */
+:focus {
+  outline: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--color-accent-primary);
   outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Button base reset */
@@ -489,6 +498,9 @@ textarea::placeholder {
 .input:focus {
   outline: none;
   border-color: var(--color-accent-primary);
+}
+
+.input:focus-visible {
   box-shadow: 0 0 0 3px var(--color-accent-primary-subtle);
 }
 

@@ -8,7 +8,11 @@ import {
     Clock,
     ChevronDown,
     ChevronRight,
+    Star,
+    TrendingUp,
+    TrendingDown,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import NewsReaderModal from '../components/NewsReaderModal';
 import { getSourceInfo } from '../constants/newsSourceLogos';
 import {
@@ -27,7 +31,8 @@ import './Portfolio.css';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'finans_portfolio_holdings';
+function storageKey(userId) { return `finans_portfolio_holdings_${userId}`; }
+function favoritesKey(userId) { return `finans_favorites_${userId}`; }
 const PRICE_REFRESH_INTERVAL = 30000;
 const NEWS_REFRESH_INTERVAL = 120000;
 
@@ -112,15 +117,26 @@ const AVATAR_COLORS = [
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function loadHoldings() {
+function loadHoldings(userId) {
     try {
-        const stored = localStorage.getItem(STORAGE_KEY);
+        const stored = localStorage.getItem(storageKey(userId));
         return stored ? JSON.parse(stored) : [];
     } catch { return []; }
 }
 
-function saveHoldings(holdings) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings));
+function saveHoldings(holdings, userId) {
+    localStorage.setItem(storageKey(userId), JSON.stringify(holdings));
+}
+
+function loadFavorites(userId) {
+    try {
+        const stored = localStorage.getItem(favoritesKey(userId));
+        return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+}
+
+function saveFavorites(favorites, userId) {
+    localStorage.setItem(favoritesKey(userId), JSON.stringify(favorites));
 }
 
 async function fetchPrice(market, symbol) {
@@ -156,7 +172,7 @@ async function fetchPrice(market, symbol) {
 function formatCurrency(value, market) {
     if (value == null || isNaN(value)) return '—';
     if (market === 'bist')
-        return `₺${Number(value).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return `₺${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     return `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -184,7 +200,7 @@ function relativeTime(isoDate) {
     if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
     if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
     if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
-    return new Date(isoDate).toLocaleDateString();
+    return new Date(isoDate).toLocaleDateString('en-US');
 }
 
 // ─── Chart data helpers ─────────────────────────────────────────────────────
@@ -251,21 +267,26 @@ function aggregatePortfolioChart(holdingsData) {
 
     for (const ts of sorted) {
         let total = 0;
-        let hasAny = false;
 
         for (let i = 0; i < holdingsData.length; i++) {
             const h = holdingsData[i];
+
+            // Always advance pointer (track price)
             while (ptrs[i] < h.dataPoints.length && h.dataPoints[ptrs[i]].time <= ts) {
                 lastKnown[i] = h.dataPoints[ptrs[i]].close;
                 ptrs[i]++;
             }
+
+            // If before purchase date, count this holding's value as 0
+            if (h.purchaseTime && ts < h.purchaseTime) continue;
+
             if (lastKnown[i] != null) {
                 total += h.quantity * lastKnown[i];
-                hasAny = true;
             }
         }
 
-        if (hasAny) result.push({ time: ts, value: +total.toFixed(2) });
+        // Always produce data point (0 before purchase, actual value after)
+        result.push({ time: ts, value: +total.toFixed(2) });
     }
 
     // Thin to ~60 points for a smooth chart
@@ -284,8 +305,8 @@ function aggregatePortfolioChart(holdingsData) {
 
 function formatChartLabel(timestamp, range) {
     const d = new Date(timestamp);
-    if (range === '1D') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (range === '3M') return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (range === '1D') return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    if (range === '3M') return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
     if (range === '1Y') return d.toLocaleDateString('en-US', { month: 'short' });
     return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
@@ -317,7 +338,9 @@ const renderActiveShape = (props) => {
 
 export default function Portfolio() {
     const navigate = useNavigate();
-    const [holdings, setHoldings] = useState(loadHoldings);
+    const { user } = useAuth();
+    const userId = user?.id || 'anonymous';
+    const [holdings, setHoldings] = useState(() => loadHoldings(userId));
     const [prices, setPrices] = useState({});
     const [loadingPrices, setLoadingPrices] = useState(false);
     const [showAddForm, setShowAddForm] = useState(false);
@@ -326,6 +349,21 @@ export default function Portfolio() {
     const [expandedGroups, setExpandedGroups] = useState({});
     const [timeRange, setTimeRange] = useState('3M');
     const refreshTimerRef = useRef(null);
+
+    // Favorites
+    const [favorites, setFavorites] = useState(() => loadFavorites(userId));
+    const [favPrices, setFavPrices] = useState({});
+    const [favLoading, setFavLoading] = useState(false);
+    const [showAddFav, setShowAddFav] = useState(false);
+    const [favMarket, setFavMarket] = useState('us');
+    const [favSymbol, setFavSymbol] = useState('');
+    const [favSymbolOptions, setFavSymbolOptions] = useState([]);
+    const [favSymbolsLoading, setFavSymbolsLoading] = useState(false);
+    const [showFavDropdown, setShowFavDropdown] = useState(false);
+    const [favHighlight, setFavHighlight] = useState(-1);
+    const favDropdownRef = useRef(null);
+
+    useEffect(() => { saveFavorites(favorites, userId); }, [favorites, userId]);
 
     // News
     const [news, setNews] = useState([]);
@@ -344,6 +382,7 @@ export default function Portfolio() {
     const [formSymbol, setFormSymbol] = useState('');
     const [formQuantity, setFormQuantity] = useState('');
     const [formPrice, setFormPrice] = useState('');
+    const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [formError, setFormError] = useState('');
 
     // Symbol autocomplete
@@ -355,7 +394,15 @@ export default function Portfolio() {
     const dropdownRef = useRef(null);
     const symbolInputRef = useRef(null);
 
-    useEffect(() => { saveHoldings(holdings); }, [holdings]);
+    useEffect(() => { saveHoldings(holdings, userId); }, [holdings, userId]);
+
+    // Reload data when user changes
+    useEffect(() => {
+        setHoldings(loadHoldings(userId));
+        setFavorites(loadFavorites(userId));
+        setPrices({});
+        setFavPrices({});
+    }, [userId]);
 
     // ── Symbol autocomplete — fetch market symbols ──────────────────────
     useEffect(() => {
@@ -447,24 +494,82 @@ export default function Portfolio() {
         }
     }, [showDropdown, filteredSymbols, highlightIndex, handleSymbolSelect]);
 
-    // ── Prices ──────────────────────────────────────────────────────────
+    // ── Favorite symbol autocomplete ────────────────────────────────────
+    useEffect(() => {
+        if (!showAddFav) return;
+        if (symbolCacheRef.current[favMarket]) {
+            setFavSymbolOptions(symbolCacheRef.current[favMarket]);
+            return;
+        }
+        let cancelled = false;
+        setFavSymbolsLoading(true);
+        fetch(`/api/markets/${favMarket}`)
+            .then(res => res.json())
+            .then(json => {
+                if (cancelled) return;
+                const quotes = json?.result?.quotes || [];
+                const opts = quotes.map(q => ({ symbol: q.symbol, name: q.name || q.symbol }));
+                symbolCacheRef.current[favMarket] = opts;
+                setFavSymbolOptions(opts);
+            })
+            .catch(() => { if (!cancelled) setFavSymbolOptions([]); })
+            .finally(() => { if (!cancelled) setFavSymbolsLoading(false); });
+        return () => { cancelled = true; };
+    }, [favMarket, showAddFav]);
+
+    const filteredFavSymbols = useMemo(() => {
+        const q = favSymbol.trim().toLowerCase();
+        const list = q
+            ? favSymbolOptions.filter(o => o.symbol.toLowerCase().includes(q) || o.name.toLowerCase().includes(q))
+            : favSymbolOptions;
+        return list.slice(0, 50);
+    }, [favSymbol, favSymbolOptions]);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (favDropdownRef.current && !favDropdownRef.current.contains(e.target)) setShowFavDropdown(false);
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleAddFavorite = useCallback((symbol) => {
+        const sym = (symbol || favSymbol).trim().toUpperCase();
+        if (!sym) return;
+        const exists = favorites.find(f => f.symbol === sym && f.market === favMarket);
+        if (!exists) {
+            setFavorites(prev => [...prev, { symbol: sym, market: favMarket }]);
+        }
+        setFavSymbol('');
+        setShowAddFav(false);
+        setShowFavDropdown(false);
+    }, [favSymbol, favMarket, favorites]);
+
+    const handleRemoveFavorite = useCallback((symbol, market) => {
+        setFavorites(prev => prev.filter(f => !(f.symbol === symbol && f.market === market)));
+    }, []);
+
+    // ── Prices (holdings + favorites) ────────────────────────────────────
     const refreshPrices = useCallback(async () => {
-        if (holdings.length === 0) return;
+        const allItems = [
+            ...holdings.map(h => ({ market: h.market, symbol: h.symbol })),
+            ...favorites.filter(f => !holdings.some(h => h.symbol === f.symbol && h.market === f.market)),
+        ];
+        if (allItems.length === 0) return;
         setLoadingPrices(true);
         const results = await Promise.all(
-            holdings.map(async (h) => {
-                const key = `${h.market}:${h.symbol}`;
-                const result = await fetchPrice(h.market, h.symbol);
+            allItems.map(async (item) => {
+                const key = `${item.market}:${item.symbol}`;
+                const result = await fetchPrice(item.market, item.symbol);
                 return { key, result };
             })
         );
-        setPrices(prev => {
-            const updated = { ...prev };
-            for (const { key, result } of results) { if (result) updated[key] = result; }
-            return updated;
-        });
+        const updated = {};
+        for (const { key, result } of results) { if (result) updated[key] = result; }
+        setPrices(prev => ({ ...prev, ...updated }));
+        setFavPrices(prev => ({ ...prev, ...updated }));
         setLoadingPrices(false);
-    }, [holdings]);
+    }, [holdings, favorites]);
 
     useEffect(() => {
         refreshPrices();
@@ -501,16 +606,23 @@ export default function Portfolio() {
         if (top) setNewsCategory(top);
     }, []);
 
-    // ── Portfolio-News Matching via Gemini ──────────────────────────────
+    // ── All tracked symbols (portfolio + favorites) ────────────────────
+    const allTrackedSymbols = useMemo(() => {
+        const set = new Set();
+        for (const h of holdings) set.add(h.symbol);
+        for (const f of favorites) set.add(f.symbol);
+        return [...set];
+    }, [holdings, favorites]);
+
+    // ── Portfolio+Favorites News Matching via Gemini ─────────────────
     useEffect(() => {
-        if (holdings.length === 0 || news.length === 0) {
+        if (allTrackedSymbols.length === 0 || news.length === 0) {
             setPortfolioMatches({});
             return;
         }
         let cancelled = false;
         setMatchLoading(true);
 
-        const symbols = holdings.map(h => h.symbol);
         const newsItems = news.map((n, i) => ({
             id: n.id || String(i),
             title: n.title,
@@ -519,7 +631,7 @@ export default function Portfolio() {
         fetch('/api/ai/match-portfolio-news', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbols, news: newsItems }),
+            body: JSON.stringify({ symbols: allTrackedSymbols, news: newsItems }),
         })
             .then(res => res.json())
             .then(json => {
@@ -531,7 +643,7 @@ export default function Portfolio() {
             .finally(() => { if (!cancelled) setMatchLoading(false); });
 
         return () => { cancelled = true; };
-    }, [holdings, news]);
+    }, [allTrackedSymbols, news]);
 
     // ── Add Holding ─────────────────────────────────────────────────────
     const handleAddHolding = async (e) => {
@@ -540,29 +652,36 @@ export default function Portfolio() {
         const symbol = formSymbol.trim().toUpperCase();
         const quantity = parseFloat(formQuantity);
         const price = parseFloat(formPrice);
-        if (!symbol) { setFormError('Symbol is required'); return; }
+        if (!symbol) { setFormError('Symbol required'); return; }
         if (isNaN(quantity) || quantity <= 0) { setFormError('Enter a valid quantity'); return; }
         if (isNaN(price) || price <= 0) { setFormError('Enter a valid purchase price'); return; }
+        if (!formDate) { setFormError('Purchase date required'); return; }
+
+        const purchaseDate = new Date(formDate + 'T00:00:00').toISOString();
 
         const exists = holdings.find(h => h.symbol === symbol && h.market === formMarket);
         if (exists) {
             const totalQty = exists.quantity + quantity;
             const totalCost = (exists.quantity * exists.avgCost) + (quantity * price);
+            // Use the earliest date as purchase date
+            const earlierDate = new Date(exists.purchaseDate || exists.addedAt) < new Date(purchaseDate)
+                ? (exists.purchaseDate || exists.addedAt) : purchaseDate;
             setHoldings(prev => prev.map(h =>
                 (h.symbol === symbol && h.market === formMarket)
-                    ? { ...h, quantity: totalQty, avgCost: totalCost / totalQty } : h
+                    ? { ...h, quantity: totalQty, avgCost: totalCost / totalQty, purchaseDate: earlierDate } : h
             ));
         } else {
             setHoldings(prev => [...prev, {
                 id: Date.now().toString(), symbol, market: formMarket,
-                quantity, avgCost: price, addedAt: new Date().toISOString(),
+                quantity, avgCost: price, purchaseDate, addedAt: new Date().toISOString(),
             }]);
         }
 
         const priceResult = await fetchPrice(formMarket, symbol);
         if (priceResult) setPrices(prev => ({ ...prev, [`${formMarket}:${symbol}`]: priceResult }));
 
-        setFormSymbol(''); setFormQuantity(''); setFormPrice(''); setShowAddForm(false);
+        setFormSymbol(''); setFormQuantity(''); setFormPrice('');
+        setFormDate(new Date().toISOString().split('T')[0]); setShowAddForm(false);
     };
 
     const handleDelete = (id) => { setHoldings(prev => prev.filter(h => h.id !== id)); setDeleteConfirm(null); };
@@ -580,17 +699,27 @@ export default function Portfolio() {
         }).sort((a, b) => (b.currentValue ?? b.totalCost) - (a.currentValue ?? a.totalCost));
     }, [holdings, prices]);
 
-    const { totalValue, totalCost, totalPL, totalPLPercent } = useMemo(() => {
+    const { totalValue, totalCost, totalPL, totalPLPercent, hasPrices } = useMemo(() => {
         let val = 0, cost = 0;
+        let anyPrice = false;
         for (const h of enrichedHoldings) {
             cost += h.totalCost;
-            val += h.currentValue ?? h.totalCost;
+            if (h.currentValue != null) {
+                val += h.currentValue;
+                anyPrice = true;
+            }
         }
-        const pl = val - cost;
-        return { totalValue: val, totalCost: cost, totalPL: pl, totalPLPercent: cost > 0 ? (pl / cost) * 100 : 0 };
+        const pl = anyPrice ? val - cost : null;
+        return {
+            totalValue: anyPrice ? val : null,
+            totalCost: cost,
+            totalPL: pl,
+            totalPLPercent: cost > 0 && pl != null ? (pl / cost) * 100 : null,
+            hasPrices: anyPrice,
+        };
     }, [enrichedHoldings]);
 
-    // ── Sorted & filtered news ─────────────────────────────────────────
+    // ── Sorted & filtered news — sadece portföy+favorilere göre ────────
     const displayedNews = useMemo(() => {
         const enriched = news.map((item, i) => {
             const id = item.id || String(i);
@@ -598,18 +727,12 @@ export default function Portfolio() {
             return { ...item, _id: id, matchedSymbols };
         });
 
-        // Matched news first, then the rest
-        const sorted = [...enriched].sort((a, b) => {
-            const aMatch = a.matchedSymbols.length > 0 ? 1 : 0;
-            const bMatch = b.matchedSymbols.length > 0 ? 1 : 0;
-            return bMatch - aMatch;
-        });
-
-        if (newsFilter === 'portfolio') {
-            return sorted.filter(n => n.matchedSymbols.length > 0);
+        // Only show matched news (portfolio + favorites)
+        if (allTrackedSymbols.length > 0) {
+            return enriched.filter(n => n.matchedSymbols.length > 0);
         }
-        return sorted;
-    }, [news, portfolioMatches, newsFilter]);
+        return enriched;
+    }, [news, portfolioMatches, allTrackedSymbols]);
 
     // ── Holdings grouped by market ─────────────────────────────────────
     const holdingsByMarket = useMemo(() => {
@@ -624,7 +747,8 @@ export default function Portfolio() {
             market: m,
             label: MARKET_LABELS[m] || m.toUpperCase(),
             holdings: groups[m],
-            totalValue: groups[m].reduce((s, h) => s + (h.currentValue ?? h.totalCost), 0),
+            totalValue: groups[m].reduce((s, h) => s + (h.currentValue != null ? h.currentValue : 0), 0),
+            hasAnyPrice: groups[m].some(h => h.currentValue != null),
         }));
     }, [enrichedHoldings]);
 
@@ -649,7 +773,10 @@ export default function Portfolio() {
         const holdingsData = await Promise.all(
             holdings.map(async (h) => {
                 const dataPoints = await fetchHoldingChart(h.market, h.symbol, timeRange);
-                return { quantity: h.quantity, dataPoints };
+                const purchaseTime = h.purchaseDate
+                    ? new Date(h.purchaseDate).getTime()
+                    : (h.addedAt ? new Date(h.addedAt).getTime() : null);
+                return { quantity: h.quantity, dataPoints, purchaseTime };
             })
         );
 
@@ -674,7 +801,7 @@ export default function Portfolio() {
     }, [chartData]);
 
     const chartChange = useMemo(() => {
-        if (chartData.length < 2) return { value: totalPL, percent: totalPLPercent };
+        if (chartData.length < 2) return { value: totalPL ?? 0, percent: totalPLPercent ?? 0 };
         const first = chartData[0].value;
         const last = chartData[chartData.length - 1].value;
         const change = last - first;
@@ -687,7 +814,7 @@ export default function Portfolio() {
         const groups = {};
         for (const h of enrichedHoldings) {
             if (!groups[h.market]) groups[h.market] = { market: h.market, value: 0 };
-            groups[h.market].value += h.currentValue ?? h.totalCost;
+            if (h.currentValue != null) groups[h.market].value += h.currentValue;
         }
         const total = Object.values(groups).reduce((s, g) => s + g.value, 0);
         return Object.values(groups)
@@ -709,7 +836,7 @@ export default function Portfolio() {
                     <div className="empty-state">
                         <div className="empty-icon"><Plus size={48} /></div>
                         <h2>Build Your Portfolio</h2>
-                        <p>Add your first asset to start tracking your investments in real-time.</p>
+                        <p>Add your first asset to start tracking your investments in real time.</p>
                         <button className="btn-accent" onClick={() => setShowAddForm(true)}>
                             <Plus size={18} /> Add Asset
                         </button>
@@ -735,16 +862,20 @@ export default function Portfolio() {
                     <div className="chart-card-top">
                         <div className="chart-info">
                             <span className="chart-label">Total Portfolio Value</span>
-                            <span className="chart-total-value">{formatShort(totalValue)}</span>
-                            <div className="chart-change-row">
-                                <span className={`chart-change ${chartChange.value >= 0 ? 'positive' : 'negative'}`}>
-                                    {chartChange.value >= 0 ? '+' : ''}{formatShort(chartChange.value)}
-                                </span>
-                                <span className={`chart-change-pct ${chartChange.value >= 0 ? 'positive' : 'negative'}`}>
-                                    {formatPercent(chartChange.percent)}
-                                </span>
-                                <span className="chart-range-label">{TIME_RANGE_LABELS[timeRange]}</span>
-                            </div>
+                            <span className="chart-total-value">
+                                {hasPrices ? formatShort(totalValue) : <span className="chart-loading-text">Loading prices...</span>}
+                            </span>
+                            {hasPrices && (
+                                <div className="chart-change-row">
+                                    <span className={`chart-change ${chartChange.value >= 0 ? 'positive' : 'negative'}`}>
+                                        {chartChange.value >= 0 ? '+' : ''}{formatShort(chartChange.value)}
+                                    </span>
+                                    <span className={`chart-change-pct ${chartChange.value >= 0 ? 'positive' : 'negative'}`}>
+                                        {formatPercent(chartChange.percent)}
+                                    </span>
+                                    <span className="chart-range-label">{TIME_RANGE_LABELS[timeRange]}</span>
+                                </div>
+                            )}
                         </div>
                         <div className="time-tabs">
                             {TIME_RANGES.map(t => (
@@ -759,7 +890,7 @@ export default function Portfolio() {
                         {chartLoading ? (
                             <div className="chart-loading">
                                 <RefreshCw size={20} className="spin" />
-                                <span>Loading chart data...</span>
+                                <span>Loading chart...</span>
                             </div>
                         ) : chartData.length === 0 ? (
                             <div className="chart-loading">
@@ -779,7 +910,7 @@ export default function Portfolio() {
                                         tick={{ fill: '#6e7681', fontSize: 11 }}
                                         interval="preserveStartEnd"
                                     />
-                                    <Tooltip content={<ChartTooltip />} />
+                                    <Tooltip content={<ChartTooltip />} cursor={false} />
                                     <Area
                                         type="monotone" dataKey="value"
                                         stroke={chartColor} strokeWidth={2}
@@ -820,7 +951,7 @@ export default function Portfolio() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="form-grid-3">
+                            <div className="form-grid-4">
                                 <div className="form-group">
                                     <label className="form-label">Symbol</label>
                                     <div className="symbol-autocomplete" ref={dropdownRef}>
@@ -844,7 +975,7 @@ export default function Portfolio() {
                                                 {symbolsLoading ? (
                                                     <div className="symbol-loading">Loading symbols...</div>
                                                 ) : filteredSymbols.length === 0 ? (
-                                                    <div className="symbol-loading">No matches</div>
+                                                    <div className="symbol-loading">No results found</div>
                                                 ) : (
                                                     filteredSymbols.map((opt, i) => (
                                                         <div
@@ -875,6 +1006,13 @@ export default function Portfolio() {
                                     <input className="form-input" type="number" placeholder="0.00" step="any" min="0"
                                         value={formPrice} onChange={e => setFormPrice(e.target.value)} />
                                 </div>
+                                <div className="form-group">
+                                    <label className="form-label">Purchase Date</label>
+                                    <input className="form-input" type="date"
+                                        value={formDate}
+                                        max={new Date().toISOString().split('T')[0]}
+                                        onChange={e => setFormDate(e.target.value)} />
+                                </div>
                             </div>
                             {formError && <p className="form-error">{formError}</p>}
                             <div className="form-actions">
@@ -887,7 +1025,7 @@ export default function Portfolio() {
 
                 {/* Holdings Header */}
                 <div className="section-header">
-                    <h3 className="section-heading">Holdings</h3>
+                    <h3 className="section-heading">Assets</h3>
                     <button className="icon-btn" onClick={refreshPrices} disabled={loadingPrices} title="Refresh">
                         <RefreshCw size={16} className={loadingPrices ? 'spin' : ''} />
                     </button>
@@ -916,7 +1054,7 @@ export default function Portfolio() {
                             </ResponsiveContainer>
                         </div>
                         <div className="distribution-info">
-                            <h4 className="distribution-title">Asset Distribution</h4>
+                            <h4 className="distribution-title">Asset Allocation</h4>
                             <div className="distribution-legend">
                                 {allocationData.map((cat, i) => (
                                     <div key={cat.name} className="legend-row"
@@ -949,7 +1087,7 @@ export default function Portfolio() {
                                 <span className="group-label">{group.label}</span>
                                 <span className="group-count">{group.holdings.length}</span>
                             </div>
-                            <span className="group-total">{formatCurrency(group.totalValue, group.market)}</span>
+                            <span className="group-total">{group.hasAnyPrice ? formatCurrency(group.totalValue, group.market) : '—'}</span>
                         </button>
 
                         {expandedGroups[group.market] && (
@@ -962,6 +1100,11 @@ export default function Portfolio() {
                                         <div className="holding-main">
                                             <span className="holding-symbol">{h.symbol}</span>
                                             <span className="holding-name">{h.name}</span>
+                                            {h.purchaseDate && (
+                                                <span className="holding-date">
+                                                    {new Date(h.purchaseDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="holding-stats">
                                             <div className="holding-stat">
@@ -969,20 +1112,24 @@ export default function Portfolio() {
                                                 <span className="holding-stat-value">{formatQuantity(h.quantity)}</span>
                                             </div>
                                             <div className="holding-stat">
-                                                <span className="holding-stat-label">Avg Cost</span>
+                                                <span className="holding-stat-label">Avg. Cost</span>
                                                 <span className="holding-stat-value">{formatCurrency(h.avgCost, h.market)}</span>
                                             </div>
-                                            <div className="holding-stat">
-                                                <span className="holding-stat-label">Value</span>
-                                                <span className="holding-stat-value">{h.currentValue != null ? formatCurrency(h.currentValue, h.market) : '—'}</span>
-                                            </div>
-                                            <div className="holding-stat">
-                                                <span className="holding-stat-label">P/L</span>
-                                                <span className={`holding-stat-value ${h.profitLoss != null ? (h.profitLoss >= 0 ? 'positive' : 'negative') : ''}`}>
-                                                    {h.profitLoss != null ? `${h.profitLoss >= 0 ? '+' : ''}${formatCurrency(h.profitLoss, h.market)}` : '—'}
-                                                    {h.profitLossPercent != null && <small> ({formatPercent(h.profitLossPercent)})</small>}
-                                                </span>
-                                            </div>
+                                            {h.currentPrice != null && (
+                                                <div className="holding-stat">
+                                                    <span className="holding-stat-label">Value</span>
+                                                    <span className="holding-stat-value">{formatCurrency(h.currentValue, h.market)}</span>
+                                                </div>
+                                            )}
+                                            {h.profitLoss != null && (
+                                                <div className="holding-stat">
+                                                    <span className="holding-stat-label">P/L</span>
+                                                    <span className={`holding-stat-value ${h.profitLoss >= 0 ? 'positive' : 'negative'}`}>
+                                                        {h.profitLoss >= 0 ? '+' : ''}{formatCurrency(h.profitLoss, h.market)}
+                                                        <small> ({formatPercent(h.profitLossPercent)})</small>
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="holding-delete" onClick={e => e.stopPropagation()}>
                                             {deleteConfirm === h.id ? (
@@ -1004,8 +1151,111 @@ export default function Portfolio() {
                 ))}
             </div>
 
-            {/* ─── Right Column — News ─── */}
+            {/* ─── Right Column — Favorites + News ─── */}
             <aside className="portfolio-sidebar">
+                {/* ── Favorites Panel ── */}
+                <div className="favorites-panel">
+                    <div className="favorites-header">
+                        <h3 className="favorites-title"><Star size={16} /> Favorites</h3>
+                        <button className="icon-btn" onClick={() => setShowAddFav(prev => !prev)} title="Add Favorite">
+                            <Plus size={16} />
+                        </button>
+                    </div>
+
+                    {showAddFav && (
+                        <div className="fav-add-row">
+                            <div className="fav-market-pills">
+                                {MARKET_OPTIONS.map(opt => (
+                                    <button type="button" key={opt.value}
+                                        className={`fav-market-pill ${favMarket === opt.value ? 'active' : ''}`}
+                                        onClick={() => { setFavMarket(opt.value); setFavSymbol(''); }}
+                                    >{opt.label}</button>
+                                ))}
+                            </div>
+                            <div className="fav-symbol-input" ref={favDropdownRef}>
+                                <input
+                                    className="form-input"
+                                    placeholder="Search symbol..."
+                                    value={favSymbol}
+                                    onChange={e => { setFavSymbol(e.target.value.toUpperCase()); setShowFavDropdown(true); setFavHighlight(-1); }}
+                                    onFocus={() => setShowFavDropdown(true)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'ArrowDown') { e.preventDefault(); setFavHighlight(p => (p + 1) % filteredFavSymbols.length); }
+                                        else if (e.key === 'ArrowUp') { e.preventDefault(); setFavHighlight(p => (p - 1 + filteredFavSymbols.length) % filteredFavSymbols.length); }
+                                        else if (e.key === 'Enter' && favHighlight >= 0) { e.preventDefault(); handleAddFavorite(filteredFavSymbols[favHighlight].symbol); }
+                                        else if (e.key === 'Escape') setShowFavDropdown(false);
+                                    }}
+                                    autoComplete="off"
+                                />
+                                {showFavDropdown && (
+                                    <div className="symbol-dropdown">
+                                        {favSymbolsLoading ? (
+                                            <div className="symbol-loading">Loading...</div>
+                                        ) : filteredFavSymbols.length === 0 ? (
+                                            <div className="symbol-loading">No results found</div>
+                                        ) : (
+                                            filteredFavSymbols.map((opt, i) => (
+                                                <div key={opt.symbol}
+                                                    className={`symbol-option${i === favHighlight ? ' highlighted' : ''}`}
+                                                    onMouseEnter={() => setFavHighlight(i)}
+                                                    onMouseDown={e => { e.preventDefault(); handleAddFavorite(opt.symbol); }}
+                                                >
+                                                    <span className="symbol-ticker">{opt.symbol}</span>
+                                                    <span className="symbol-name">{opt.name}</span>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="favorites-list">
+                        {favorites.length === 0 ? (
+                            <div className="favorites-empty">
+                                Click <Plus size={12} /> to add favorites
+                            </div>
+                        ) : (
+                            favorites.map(fav => {
+                                const priceData = favPrices[`${fav.market}:${fav.symbol}`] || prices[`${fav.market}:${fav.symbol}`];
+                                const change = priceData?.change;
+                                const isUp = change != null && change >= 0;
+                                return (
+                                    <div key={`${fav.market}:${fav.symbol}`} className="fav-row"
+                                        onClick={() => navigate(`/asset/${fav.market}/${fav.symbol}`)}
+                                    >
+                                        <div className="fav-avatar" style={{ background: MARKET_COLORS[fav.market] }}>
+                                            {fav.symbol.charAt(0)}
+                                        </div>
+                                        <div className="fav-info">
+                                            <span className="fav-symbol">{fav.symbol}</span>
+                                            <span className="fav-market-label">{MARKET_LABELS[fav.market]}</span>
+                                        </div>
+                                        <div className="fav-price-col">
+                                            {priceData ? (
+                                                <>
+                                                    <span className="fav-price">{formatCurrency(priceData.price, fav.market)}</span>
+                                                    <span className={`fav-change ${isUp ? 'positive' : 'negative'}`}>
+                                                        {isUp ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                                                        {formatPercent(change)}
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <span className="fav-price-loading">—</span>
+                                            )}
+                                        </div>
+                                        <button className="fav-remove" onClick={e => { e.stopPropagation(); handleRemoveFavorite(fav.symbol, fav.market); }}>
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+
+                {/* ── News Panel (Dark Theme) ── */}
                 <div className="news-panel">
                     <div className="news-panel-header">
                         <h3 className="news-panel-title">News</h3>
@@ -1017,17 +1267,6 @@ export default function Portfolio() {
                                 >{c.label}</button>
                             ))}
                         </div>
-                    </div>
-
-                    <div className="news-filter-tabs">
-                        <button
-                            className={`news-filter-btn ${newsFilter === 'all' ? 'active' : ''}`}
-                            onClick={() => setNewsFilter('all')}
-                        >Tüm Piyasalar</button>
-                        <button
-                            className={`news-filter-btn ${newsFilter === 'portfolio' ? 'active' : ''}`}
-                            onClick={() => setNewsFilter('portfolio')}
-                        >Sadece Portföyüm</button>
                     </div>
 
                     <div className="news-list">
@@ -1043,7 +1282,9 @@ export default function Portfolio() {
                             ))
                         ) : displayedNews.length === 0 ? (
                             <div className="news-empty">
-                                {newsFilter === 'portfolio' ? 'Portföyünüzle ilgili haber bulunamadı' : 'No news available'}
+                                {allTrackedSymbols.length > 0
+                                    ? 'No news matching your watchlist'
+                                    : 'Related news will appear here when you add portfolio or favorites'}
                             </div>
                         ) : (
                             displayedNews.map((item, i) => {
@@ -1074,18 +1315,13 @@ export default function Portfolio() {
                                             <div className="news-item-meta">
                                                 <span className="news-item-source">{si.label}</span>
                                                 {hasMatch && (
-                                                    <span className="portfolio-badge">
-                                                        PORTFÖYÜNLE İLGİLİ
-                                                    </span>
+                                                    <div className="portfolio-badge-symbols">
+                                                        {item.matchedSymbols.map(s => (
+                                                            <span key={s} className="portfolio-symbol-chip">{s}</span>
+                                                        ))}
+                                                    </div>
                                                 )}
                                             </div>
-                                            {hasMatch && (
-                                                <div className="portfolio-badge-symbols">
-                                                    {item.matchedSymbols.map(s => (
-                                                        <span key={s} className="portfolio-symbol-chip">{s}</span>
-                                                    ))}
-                                                </div>
-                                            )}
                                         </div>
                                     </button>
                                 );

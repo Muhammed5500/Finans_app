@@ -15,6 +15,7 @@ export default defineConfig({
       '/api/markets': { target: 'http://localhost:3002', changeOrigin: true },
       '/api/yahoo': { target: 'http://localhost:3002', changeOrigin: true },
       '/api/ai': { target: 'http://localhost:3002', changeOrigin: true },
+      '/api/auth': { target: 'http://localhost:3002', changeOrigin: true },
     },
   },
 })

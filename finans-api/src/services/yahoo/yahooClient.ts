@@ -342,7 +342,7 @@ export class YahooClient {
         );
       }
 
-      // Boş veri: 404 yerine 200 + empty candles (BIST intraday sıklıkla boş)
+      // Empty data: return 200 + empty candles instead of 404 (BIST intraday is often empty)
       if (result.quotes.length === 0) {
         const meta = result.meta ?? {};
         return {

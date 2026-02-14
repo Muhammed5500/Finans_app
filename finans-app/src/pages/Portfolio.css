@@ -320,6 +320,12 @@
     gap: var(--space-4);
 }
 
+.form-grid-4 {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr 1fr;
+    gap: var(--space-4);
+}
+
 .form-group {
     display: flex;
     flex-direction: column;
@@ -380,12 +386,34 @@
 .form-input:focus {
     outline: none;
     border-color: var(--color-success);
+}
+
+.form-input:focus-visible {
     box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.15);
 }
 
 .form-input::placeholder {
     color: var(--color-text-tertiary);
     opacity: 0.6;
+}
+
+/* Date input styling */
+.form-input[type="date"] {
+    color-scheme: dark;
+    cursor: pointer;
+}
+
+.form-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.6);
+    cursor: pointer;
+}
+
+[data-theme="light"] .form-input[type="date"] {
+    color-scheme: light;
+}
+
+[data-theme="light"] .form-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: none;
 }
 
 .form-error {
@@ -651,6 +679,13 @@
     max-width: 120px;
 }
 
+.holding-date {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+
 .holding-stats {
     display: flex;
     gap: var(--space-4);
@@ -716,20 +751,221 @@
 }
 
 /* =====================================================
-   News Panel (Right Sidebar) — Light / White Card
+   Favorites Panel (Right Sidebar)
    ===================================================== */
 .portfolio-sidebar {
     position: sticky;
     top: 80px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
 }
 
-.news-panel {
-    background: #f6f8fa;
-    border: 1px solid #d0d7de;
+.favorites-panel {
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius-xl);
     display: flex;
     flex-direction: column;
-    max-height: calc(100vh - 100px);
+}
+
+.favorites-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.favorites-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-base);
+    font-weight: var(--font-bold);
+    color: var(--color-text-primary);
+    margin: 0;
+}
+
+.favorites-title svg {
+    color: #d29922;
+}
+
+.fav-add-row {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border-primary);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.fav-market-pills {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+}
+
+.fav-market-pill {
+    padding: 2px var(--space-2);
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-sm);
+    font-size: 10px;
+    font-weight: var(--font-semibold);
+    font-family: inherit;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.fav-market-pill.active {
+    background: rgba(210, 153, 34, 0.15);
+    border-color: #d29922;
+    color: #d29922;
+}
+
+.fav-symbol-input {
+    position: relative;
+}
+
+.fav-symbol-input .form-input {
+    padding: var(--space-2);
+    font-size: var(--text-xs);
+}
+
+.favorites-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.favorites-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    padding: var(--space-6) var(--space-4);
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    text-align: center;
+}
+
+.fav-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.fav-row:hover {
+    background: var(--color-bg-hover);
+}
+
+.fav-row + .fav-row {
+    border-top: 1px solid var(--color-border-secondary);
+}
+
+.fav-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: var(--font-bold);
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.fav-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+
+.fav-symbol {
+    font-size: var(--text-sm);
+    font-weight: var(--font-semibold);
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+}
+
+.fav-market-label {
+    font-size: 10px;
+    color: var(--color-text-tertiary);
+}
+
+.fav-price-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.fav-price {
+    font-size: var(--text-sm);
+    font-weight: var(--font-semibold);
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+    white-space: nowrap;
+}
+
+.fav-price-loading {
+    font-size: var(--text-sm);
+    color: var(--color-text-tertiary);
+}
+
+.fav-change {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: var(--font-semibold);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+
+.fav-change.positive { color: var(--color-success); }
+.fav-change.negative { color: var(--color-error); }
+
+.fav-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: all var(--transition-fast);
+}
+
+.fav-row:hover .fav-remove {
+    opacity: 1;
+}
+
+.fav-remove:hover {
+    background: var(--color-error-subtle);
+    color: var(--color-error);
+}
+
+/* =====================================================
+   News Panel (Right Sidebar) — Dark Theme
+   ===================================================== */
+.news-panel {
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-xl);
+    display: flex;
+    flex-direction: column;
+    max-height: 450px;
     overflow: hidden;
 }
 
@@ -739,68 +975,14 @@
     justify-content: space-between;
     gap: var(--space-3);
     padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid #d0d7de;
+    border-bottom: 1px solid var(--color-border-primary);
 }
 
 .news-panel-title {
-    font-size: var(--text-lg);
+    font-size: var(--text-base);
     font-weight: var(--font-bold);
-    color: #1f2328;
+    color: var(--color-text-primary);
     margin: 0;
-}
-
-/* Override time-tabs colors inside news panel for light bg */
-.news-panel .time-tabs {
-    background: #e6edf3;
-    border-color: #d0d7de;
-}
-
-.news-panel .time-tab {
-    color: #656d76;
-}
-
-.news-panel .time-tab:hover {
-    color: #1f2328;
-}
-
-.news-panel .time-tab.active {
-    background: #fff;
-    color: #1f2328;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-/* ── News Filter Tabs ── */
-.news-filter-tabs {
-    display: flex;
-    gap: var(--space-2);
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid #e6edf3;
-}
-
-.news-filter-btn {
-    padding: var(--space-1) var(--space-3);
-    background: transparent;
-    border: 1px solid #d0d7de;
-    border-radius: var(--radius-full);
-    font-size: var(--text-xs);
-    font-weight: var(--font-semibold);
-    font-family: inherit;
-    color: #656d76;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    white-space: nowrap;
-}
-
-.news-filter-btn:hover {
-    background: #e6edf3;
-    color: #1f2328;
-}
-
-.news-filter-btn.active {
-    background: linear-gradient(135deg, #d4a017, #b8860b);
-    border-color: transparent;
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(212, 160, 23, 0.3);
 }
 
 .news-list {
@@ -818,10 +1000,16 @@
     text-decoration: none;
     transition: background var(--transition-fast);
     cursor: pointer;
+    width: 100%;
+    border: none;
+    background: none;
+    text-align: left;
+    font-family: inherit;
+    outline: none;
 }
 
 .news-item:hover {
-    background: rgba(0, 0, 0, 0.04);
+    background: var(--color-bg-hover);
 }
 
 .news-avatar {
@@ -848,7 +1036,7 @@
 .news-item-title {
     font-size: var(--text-sm);
     font-weight: var(--font-medium);
-    color: #1f2328;
+    color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -857,67 +1045,43 @@
 
 .news-item-source {
     font-size: var(--text-xs);
-    color: #656d76;
+    color: var(--color-text-tertiary);
 }
 
 /* ── Portfolio Badge & Symbol Chips ── */
 .news-item-matched {
-    background: rgba(212, 160, 23, 0.04);
-    border-left: 2px solid #d4a017;
+    background: rgba(210, 153, 34, 0.06);
+    border-left: 2px solid #d29922;
 }
 
 .news-item-matched:hover {
-    background: rgba(212, 160, 23, 0.08);
+    background: rgba(210, 153, 34, 0.1);
 }
 
 .news-item-meta {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-}
-
-.portfolio-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 1px 6px;
-    background: linear-gradient(135deg, #d4a017, #b8860b);
-    border-radius: var(--radius-sm);
-    font-size: 9px;
-    font-weight: var(--font-bold);
-    color: #fff;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    white-space: nowrap;
+    flex-wrap: wrap;
 }
 
 .portfolio-badge-symbols {
     display: flex;
     gap: 3px;
     flex-wrap: wrap;
-    margin-top: 2px;
 }
 
 .portfolio-symbol-chip {
     display: inline-flex;
     padding: 0 4px;
-    background: rgba(212, 160, 23, 0.15);
-    border: 1px solid rgba(212, 160, 23, 0.3);
+    background: rgba(210, 153, 34, 0.15);
+    border: 1px solid rgba(210, 153, 34, 0.3);
     border-radius: var(--radius-sm);
     font-size: 9px;
     font-weight: var(--font-semibold);
     font-family: var(--font-mono);
-    color: #b8860b;
+    color: #d29922;
     white-space: nowrap;
-}
-
-.news-item-pct {
-    font-size: var(--text-sm);
-    font-weight: var(--font-semibold);
-    font-family: var(--font-mono);
-    color: #1f2328;
-    white-space: nowrap;
-    flex-shrink: 0;
-    margin-left: auto;
 }
 
 /* Skeleton */
@@ -932,7 +1096,8 @@
     padding: var(--space-8) var(--space-4);
     text-align: center;
     font-size: var(--text-sm);
-    color: #656d76;
+    color: var(--color-text-tertiary);
+    line-height: 1.5;
 }
 
 /* =====================================================
@@ -978,6 +1143,41 @@
 }
 
 /* =====================================================
+   Remove focus outlines on mouse click (Recharts, buttons, etc.)
+   ===================================================== */
+.recharts-wrapper,
+.recharts-wrapper *,
+.recharts-surface,
+.recharts-surface *,
+.recharts-sector,
+.recharts-active-dot {
+    outline: none !important;
+}
+
+.portfolio-page button:focus:not(:focus-visible),
+.portfolio-page .time-tab:focus:not(:focus-visible),
+.portfolio-page .news-item:focus:not(:focus-visible),
+.portfolio-page .market-pill:focus:not(:focus-visible),
+.portfolio-page .fav-market-pill:focus:not(:focus-visible),
+.portfolio-page .holdings-group-header:focus:not(:focus-visible),
+.portfolio-page .icon-btn:focus:not(:focus-visible),
+.portfolio-page .icon-btn-sm:focus:not(:focus-visible),
+.portfolio-page .btn-accent:focus:not(:focus-visible),
+.portfolio-page .btn-ghost:focus:not(:focus-visible),
+.portfolio-page .fav-remove:focus:not(:focus-visible),
+.portfolio-page .confirm-del:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.chart-loading-text {
+    font-size: var(--text-sm);
+    color: var(--color-text-tertiary);
+    font-weight: var(--font-normal);
+    font-family: var(--font-sans);
+}
+
+/* =====================================================
    Spinner
    ===================================================== */
 @keyframes spin {
@@ -998,10 +1198,6 @@
 
     .portfolio-sidebar {
         position: static;
-    }
-
-    .news-panel {
-        max-height: 450px;
     }
 }
 
@@ -1033,6 +1229,10 @@
     }
 
     .form-grid-3 {
+        grid-template-columns: 1fr;
+    }
+
+    .form-grid-4 {
         grid-template-columns: 1fr;
     }
 

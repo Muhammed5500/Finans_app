@@ -68,7 +68,7 @@ function formatLargeNumber(num) {
 function formatPrice(price, market) {
     if (price == null) return '—';
     if (market === 'bist') {
-        return `₺${Number(price).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return `₺${Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     if (market === 'forex') {
         return Number(price).toFixed(4);
@@ -543,7 +543,7 @@ export default function AssetDetail() {
                         {marketLower === 'crypto' && (
                             <div className="dividend-info">
                                 <span className="dividend-label">Dividends</span>
-                                <span className="dividend-value">Kripto paralar temettü ödemez</span>
+                                <span className="dividend-value">Cryptocurrencies do not pay dividends</span>
                             </div>
                         )}
                     </div>
@@ -594,8 +594,8 @@ export default function AssetDetail() {
                     <button
                         className="ai-btn"
                         onClick={() => {
-                            window.dispatchEvent(new CustomEvent('openAIChat', {
-                                detail: { query: `Tell me more about ${displayName} (${symbolUpper}). What should investors know?` }
+                            window.dispatchEvent(new CustomEvent('kamil-ai-ask', {
+                                detail: { message: `Tell me more about ${displayName} (${symbolUpper}). What should investors know?`, autoSend: true }
                             }));
                         }}
                     >

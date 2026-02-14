@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import { AppError } from '../../utils/errors';
 
 let model: GenerativeModel | null = null;
 
@@ -7,25 +8,36 @@ function getModel(): GenerativeModel {
     const apiKey = process.env.GEMINI_API_KEY || '';
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
     const genAI = new GoogleGenerativeAI(apiKey);
-    model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   }
   return model;
 }
 
-const SYSTEM_PROMPT = `Sen "Kamil AI" adında, Kamil Finance platformunun yapay zeka finans asistanısın.
+function handleGeminiError(err: unknown): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('429') || msg.includes('quota') || msg.includes('Too Many Requests')) {
+    throw new AppError(429, 'AI quota limit exceeded. Please wait a moment and try again.', 'AI_RATE_LIMIT');
+  }
+  if (msg.includes('403') || msg.includes('API key')) {
+    throw new AppError(503, 'AI service is currently unavailable. Please check API key.', 'AI_AUTH_ERROR');
+  }
+  throw new AppError(502, 'Could not get a response from the AI service. Please try again.', 'AI_ERROR');
+}
 
-Görevlerin:
-- Kullanıcının finansal sorularını profesyonel ve anlaşılır şekilde yanıtla
-- Portföy analizi yap, çeşitlendirme ve risk değerlendirmesi sun
-- Haber ve piyasa olaylarını yorumla
-- Hem Türkçe hem İngilizce dillerinde akıcı cevap ver (kullanıcının diline uyum sağla)
+const SYSTEM_PROMPT = `You are "Kamil AI", the AI finance assistant of the Kamil Finance platform.
 
-Kurallar:
-- Kısa, öz ve profesyonel ol
-- Somut öneriler verirken "Bu finansal tavsiye niteliği taşımaz" uyarısını ekle
-- Sayısal verileri kullan, belirsiz ifadelerden kaçın
-- Markdown formatı KULLANMA, düz metin yaz
-- Pozitif ve yapıcı bir ton kullan`;
+Your responsibilities:
+- Answer the user's financial questions in a professional and clear manner
+- Perform portfolio analysis, offer diversification and risk assessment
+- Interpret news and market events
+- Respond fluently in English
+
+Rules:
+- Be concise, clear and professional
+- When giving specific recommendations, add "This is not financial advice." disclaimer
+- Use numerical data, avoid vague statements
+- Do NOT use Markdown formatting, write in plain text
+- Use a positive and constructive tone`;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -62,23 +74,27 @@ export async function chat(message: string, context?: ChatContext): Promise<stri
       (s, h) => s + (h.currentValue ?? h.quantity * h.avgCost), 0,
     );
     const lines = context.holdings.map(h =>
-      `${h.symbol} (${h.market}): ${h.quantity} adet, maliyet $${h.avgCost?.toFixed(2)}, güncel $${h.currentPrice?.toFixed(2) ?? '?'}, değer $${h.currentValue?.toFixed(2) ?? '?'}, K/Z $${h.profitLoss?.toFixed(2) ?? '?'}`,
+      `${h.symbol} (${h.market}): ${h.quantity} units, cost $${h.avgCost?.toFixed(2)}, current $${h.currentPrice?.toFixed(2) ?? '?'}, value $${h.currentValue?.toFixed(2) ?? '?'}, P/L $${h.profitLoss?.toFixed(2) ?? '?'}`,
     );
-    contextBlock += `\n\n--- KULLANICININ PORTFÖYÜ (Toplam: $${totalValue.toFixed(2)}) ---\n${lines.join('\n')}`;
+    contextBlock += `\n\n--- USER'S PORTFOLIO (Total: $${totalValue.toFixed(2)}) ---\n${lines.join('\n')}`;
   }
 
   if (context?.news && context.news.length > 0) {
     const lines = context.news.slice(0, 5).map(n => `• ${n.title} (${n.source})`);
-    contextBlock += `\n\n--- SON HABERLER ---\n${lines.join('\n')}`;
+    contextBlock += `\n\n--- RECENT NEWS ---\n${lines.join('\n')}`;
   }
 
   if (context?.currentPage) {
-    contextBlock += `\n\n[Kullanıcı şu an "${context.currentPage}" sayfasında]`;
+    contextBlock += `\n\n[User is currently on the "${context.currentPage}" page]`;
   }
 
-  const prompt = `${SYSTEM_PROMPT}${contextBlock}\n\nKullanıcı: ${message}\n\nKamil AI:`;
-  const result = await m.generateContent(prompt);
-  return result.response.text();
+  const prompt = `${SYSTEM_PROMPT}${contextBlock}\n\nUser: ${message}\n\nKamil AI:`;
+  try {
+    const result = await m.generateContent(prompt);
+    return result.response.text();
+  } catch (err) {
+    handleGeminiError(err);
+  }
 }
 
 // ─── News Summary ─────────────────────────────────────────────────────────
@@ -92,22 +108,27 @@ export async function summarizeNews(
 
   const prompt = `${SYSTEM_PROMPT}
 
-Aşağıdaki haberi analiz et ve yanıtını SADECE geçerli JSON olarak ver, başka hiçbir şey ekleme:
+Analyze the following news article and respond ONLY with valid JSON, nothing else:
 
-Haber Başlığı: ${title}
-${source ? `Kaynak: ${source}` : ''}
-${summary ? `Özet: ${summary}` : ''}
+Headline: ${title}
+${source ? `Source: ${source}` : ''}
+${summary ? `Summary: ${summary}` : ''}
 
-JSON formatı:
+JSON format:
 {
-  "summary": "Haberin 2-3 cümlelik detaylı özeti",
-  "keyPoints": ["Kritik nokta 1", "Kritik nokta 2", "Kritik nokta 3"],
-  "sentiment": "positive veya negative veya neutral",
-  "marketImpact": "Piyasa etkisi değerlendirmesi (1-2 cümle)"
+  "summary": "A detailed 2-3 sentence summary of the news",
+  "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
+  "sentiment": "positive or negative or neutral",
+  "marketImpact": "Market impact assessment (1-2 sentences)"
 }`;
 
-  const result = await m.generateContent(prompt);
-  const text = result.response.text();
+  let text: string;
+  try {
+    const result = await m.generateContent(prompt);
+    text = result.response.text();
+  } catch (err) {
+    handleGeminiError(err);
+  }
 
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -136,44 +157,46 @@ export async function analyzeNewsEnhanced(
   portfolioSymbols?: string[],
 ): Promise<NewsAnalysisResult> {
   const m = getModel();
-  const lang = language === 'tr' ? 'tr' : 'en';
 
-  const langInstruction = lang === 'tr'
-    ? 'Yanıtını Türkçe ver. Hisse sembolleri BIST formatında olsun (THYAO, GARAN, ASELS vb).'
-    : 'Respond in English. Stock symbols should be in NYSE/NASDAQ format (AAPL, MSFT, TSLA etc).';
+  const langInstruction = 'Respond in English. Stock symbols should be in NYSE/NASDAQ format (AAPL, MSFT, TSLA etc).';
 
   const portfolioInstruction = portfolioSymbols && portfolioSymbols.length > 0
-    ? `\n\nÖNEMLİ: Bu haber kullanıcının portföyündeki [${portfolioSymbols.join(', ')}] varlıklarıyla ilgili. Analizine kişiselleştirilmiş bir girişle başla ve bu varlıkların nasıl etkilenebileceğini özellikle belirt.`
+    ? `\n\nIMPORTANT: This news is related to the user's portfolio holdings [${portfolioSymbols.join(', ')}]. Start your analysis with a personalized introduction and specifically highlight how these assets may be affected.`
     : '';
 
   const prompt = `${SYSTEM_PROMPT}
 
-Aşağıdaki finans haberini detaylı analiz et. ${langInstruction}${portfolioInstruction}
+Analyze the following financial news in detail. ${langInstruction}${portfolioInstruction}
 
-Yanıtını SADECE geçerli JSON olarak ver, başka hiçbir şey ekleme:
+Respond ONLY with valid JSON, nothing else:
 
-Haber Başlığı: ${title}
-${source ? `Kaynak: ${source}` : ''}
-${summary ? `Özet: ${summary}` : ''}
+Headline: ${title}
+${source ? `Source: ${source}` : ''}
+${summary ? `Summary: ${summary}` : ''}
 
-JSON formatı:
+JSON format:
 {
-  "quickLook": ["Kısa madde 1", "Kısa madde 2", "Kısa madde 3"],
-  "affectedStocks": ["SEMBOL1", "SEMBOL2"],
-  "sentiment": "positive veya negative veya neutral",
-  "marketImpact": "Piyasa etkisi değerlendirmesi (1-2 cümle)",
-  "summary": "Haberin 2-3 cümlelik detaylı özeti",
-  "keyPoints": ["Anahtar nokta 1", "Anahtar nokta 2"]
+  "quickLook": ["Brief point 1", "Brief point 2", "Brief point 3"],
+  "affectedStocks": ["SYMBOL1", "SYMBOL2"],
+  "sentiment": "positive or negative or neutral",
+  "marketImpact": "Market impact assessment (1-2 sentences)",
+  "summary": "A detailed 2-3 sentence summary of the news",
+  "keyPoints": ["Key point 1", "Key point 2"]
 }
 
-Kurallar:
-- quickLook tam olarak 3 madde olmalı, her biri max 15 kelime
-- affectedStocks en fazla 5 sembol, sadece doğrudan etkilenen hisseler
-- Kripto haberleri için BTC, ETH gibi semboller kullan
-- Eğer etkilenen hisse yoksa boş dizi ver`;
+Rules:
+- quickLook must have exactly 3 items, each max 15 words
+- affectedStocks at most 5 symbols, only directly affected stocks
+- For crypto news use symbols like BTC, ETH
+- If no stocks are affected, return an empty array`;
 
-  const result = await m.generateContent(prompt);
-  const text = result.response.text();
+  let text: string;
+  try {
+    const result = await m.generateContent(prompt);
+    text = result.response.text();
+  } catch (err) {
+    handleGeminiError(err);
+  }
 
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -196,7 +219,7 @@ export async function analyzePortfolio(
   holdings: ChatContext['holdings'],
 ): Promise<string> {
   if (!holdings || holdings.length === 0) {
-    return 'Portföyünüzde henüz varlık bulunmuyor. Portfolio sayfasından varlık ekleyerek başlayabilirsiniz.';
+    return 'Your portfolio is empty. You can start by adding assets from the Portfolio page.';
   }
 
   const m = getModel();
@@ -218,25 +241,29 @@ export async function analyzePortfolio(
 
   const prompt = `${SYSTEM_PROMPT}
 
-Kullanıcının portföyünü analiz et:
+Analyze the user's portfolio:
 
-Toplam Değer: $${totalValue.toFixed(2)}
-Toplam Maliyet: $${totalCost.toFixed(2)}
-Toplam K/Z: $${totalPL.toFixed(2)} (${totalCost > 0 ? ((totalPL / totalCost) * 100).toFixed(2) : 0}%)
+Total Value: $${totalValue.toFixed(2)}
+Total Cost: $${totalCost.toFixed(2)}
+Total P/L: $${totalPL.toFixed(2)} (${totalCost > 0 ? ((totalPL / totalCost) * 100).toFixed(2) : 0}%)
 
-Varlıklar:
+Holdings:
 ${JSON.stringify(details, null, 2)}
 
-Değerlendir:
-1. Çeşitlendirme durumu
-2. Risk profili
-3. Güçlü ve zayıf yönler
-4. İyileştirme önerileri
+Evaluate:
+1. Diversification status
+2. Risk profile
+3. Strengths and weaknesses
+4. Improvement suggestions
 
-Max 200 kelime, düz metin yaz. Sonuna "Bu bir yatırım tavsiyesi değildir." ekle.`;
+Max 200 words, write in plain text. End with "This is not financial advice."`;
 
-  const result = await m.generateContent(prompt);
-  return result.response.text();
+  try {
+    const result = await m.generateContent(prompt);
+    return result.response.text();
+  } catch (err) {
+    handleGeminiError(err);
+  }
 }
 
 // ─── Portfolio News Matching ─────────────────────────────────────────────
@@ -251,20 +278,26 @@ export async function matchPortfolioNews(
 
   const newsBlock = news.map((n, i) => `${i + 1}. [${n.id}] ${n.title}`).join('\n');
 
-  const prompt = `Portföydeki semboller: [${symbols.join(', ')}]
+  const prompt = `Portfolio symbols: [${symbols.join(', ')}]
 
-Aşağıdaki haberlerin hangisi hangi sembolle ilgili? Sadece doğrudan ilgili olanları eşleştir.
+Which of the following news articles are related to which symbol? Only match directly related ones.
 
-Haberler:
+News:
 ${newsBlock}
 
-Yanıtını SADECE geçerli JSON olarak ver, başka hiçbir şey ekleme.
-Format: {"haberIdsi": ["SEMBOL1", "SEMBOL2"]}
-Eşleşmeyen haberleri dahil etme. Hiç eşleşme yoksa boş obje {} döndür.`;
+Respond ONLY with valid JSON, nothing else.
+Format: {"newsId": ["SYMBOL1", "SYMBOL2"]}
+Do not include unmatched news. If there are no matches, return an empty object {}.`;
 
+  let text: string;
   try {
     const result = await m.generateContent(prompt);
-    const text = result.response.text();
+    text = result.response.text();
+  } catch (err) {
+    handleGeminiError(err);
+  }
+
+  try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) return JSON.parse(jsonMatch[0]);
   } catch { /* fall through */ }

@@ -131,6 +131,32 @@
     border-color: var(--color-text-tertiary);
 }
 
+/* Theme Toggle Button */
+.theme-toggle-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-full);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.theme-toggle-btn:hover {
+    background: var(--color-bg-hover);
+    color: #f0a500;
+    border-color: #f0a500;
+}
+
+[data-theme="light"] .theme-toggle-btn:hover {
+    color: #5a5acd;
+    border-color: #5a5acd;
+}
+
 .mobile-only {
     display: none;
 }
@@ -239,6 +265,16 @@
 .mobile-link.active {
     background: rgba(63, 185, 80, 0.12);
     color: var(--color-success);
+}
+
+.mobile-theme-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+    margin-top: var(--space-2);
+    border-top: 1px solid var(--color-border-secondary);
+    padding-top: var(--space-3);
 }
 
 /* =====================================================

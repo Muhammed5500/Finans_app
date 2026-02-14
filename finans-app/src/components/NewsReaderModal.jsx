@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
     X,
     ExternalLink,
@@ -15,13 +15,13 @@ import './NewsReaderModal.css';
 
 export default function NewsReaderModal({ article, onClose }) {
     const [analysis, setAnalysis] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
+    const [requested, setRequested] = useState(false);
 
-    useEffect(() => {
-        if (!article) return;
-        let cancelled = false;
+    const handleAnalyze = () => {
+        if (loading || requested) return;
+        setRequested(true);
         setLoading(true);
-        setAnalysis(null);
 
         const payload = {
             title: article.headline,
@@ -40,28 +40,31 @@ export default function NewsReaderModal({ article, onClose }) {
         })
             .then(res => res.json())
             .then(json => {
-                if (!cancelled && json.ok && json.result) {
+                if (json.ok && json.result) {
                     setAnalysis(json.result);
-                }
-            })
-            .catch(() => {
-                if (!cancelled) {
+                } else {
                     setAnalysis({
                         quickLook: [],
                         affectedStocks: [],
                         sentiment: 'neutral',
                         marketImpact: '',
-                        summary: 'Analiz yapılamadı.',
+                        summary: json.error?.message || 'Analysis failed.',
                         keyPoints: [],
                     });
                 }
             })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-
-        return () => { cancelled = true; };
-    }, [article]);
+            .catch(() => {
+                setAnalysis({
+                    quickLook: [],
+                    affectedStocks: [],
+                    sentiment: 'neutral',
+                    marketImpact: '',
+                    summary: 'Analysis failed. Please try again.',
+                    keyPoints: [],
+                });
+            })
+            .finally(() => setLoading(false));
+    };
 
     if (!article) return null;
 
@@ -114,7 +117,7 @@ export default function NewsReaderModal({ article, onClose }) {
                         rel="noopener noreferrer"
                         className="reader-modal-link"
                     >
-                        <ExternalLink size={14} /> Orijinal haberi oku
+                        <ExternalLink size={14} /> Read original article
                     </a>
                 </div>
 
@@ -122,20 +125,28 @@ export default function NewsReaderModal({ article, onClose }) {
                 <div className="reader-modal-ai">
                     <div className="ai-section-header">
                         <Sparkles size={16} />
-                        <span>Kamil AI Analizi</span>
+                        <span>Kamil AI Analysis</span>
                     </div>
 
-                    {loading ? (
+                    {!requested ? (
+                        <div className="ai-section-prompt">
+                            <Sparkles size={28} />
+                            <p>Want AI to analyze this article?</p>
+                            <button className="ai-analyze-btn" onClick={handleAnalyze}>
+                                <Sparkles size={14} /> Analyze with AI
+                            </button>
+                        </div>
+                    ) : loading ? (
                         <div className="ai-section-loading">
                             <Loader2 size={24} className="spin" />
-                            <span>Haber analiz ediliyor...</span>
+                            <span>Analyzing article...</span>
                         </div>
                     ) : analysis ? (
                         <div className="ai-section-body">
                             {/* Quick Look */}
                             {analysis.quickLook?.length > 0 && (
                                 <div className="ai-quick-look">
-                                    <h4>Hızlı Bakış</h4>
+                                    <h4>Quick Look</h4>
                                     <ul>
                                         {analysis.quickLook.map((item, i) => (
                                             <li key={i}>{item}</li>
@@ -165,7 +176,7 @@ export default function NewsReaderModal({ article, onClose }) {
                             {/* Affected Stocks */}
                             {analysis.affectedStocks?.length > 0 && (
                                 <div className="ai-affected-stocks">
-                                    <h4>Etkilenen Hisseler</h4>
+                                    <h4>Affected Stocks</h4>
                                     <div className="ai-stock-chips">
                                         {analysis.affectedStocks.map((stock, i) => (
                                             <span key={i} className="ai-stock-chip">
@@ -180,7 +191,7 @@ export default function NewsReaderModal({ article, onClose }) {
                             {/* Market Impact */}
                             {analysis.marketImpact && (
                                 <div className="ai-market-impact">
-                                    <h4>Piyasa Etkisi</h4>
+                                    <h4>Market Impact</h4>
                                     <p>{analysis.marketImpact}</p>
                                 </div>
                             )}
@@ -188,7 +199,7 @@ export default function NewsReaderModal({ article, onClose }) {
                             {/* Summary */}
                             {analysis.summary && (
                                 <div className="ai-detail-summary">
-                                    <h4>Özet</h4>
+                                    <h4>Summary</h4>
                                     <p>{analysis.summary}</p>
                                 </div>
                             )}

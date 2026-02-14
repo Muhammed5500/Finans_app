@@ -178,8 +178,8 @@ const tabs = [
     { id: 'fund', label: 'Funds/ETF' },
 ];
 
-/** Otomatik yenileme aralığı (ms) - Markets fiyatları */
-const MARKETS_REFRESH_INTERVAL_MS = 30 * 1000; // 30 saniye
+/** Auto-refresh interval (ms) - Market prices */
+const MARKETS_REFRESH_INTERVAL_MS = 30 * 1000; // 30 seconds
 
 export default function Markets() {
     const navigate = useNavigate();
@@ -199,7 +199,7 @@ export default function Markets() {
             const res = await fetch('/api/markets/crypto');
             const json = await res.json();
             if (!json.ok || !json.result?.quotes) {
-                throw new Error(json.message || 'Kripto verisi alınamadı');
+                throw new Error(json.message || 'Failed to fetch crypto data');
             }
             const assets = json.result.quotes.map((q, i) => ({
                 id: i + 1,
@@ -235,7 +235,7 @@ export default function Markets() {
             const res = await fetch('/api/markets/bist');
             const json = await res.json();
             if (!json.ok || !json.result?.quotes) {
-                throw new Error(json.message || 'BIST verisi alınamadı');
+                throw new Error(json.message || 'Failed to fetch BIST data');
             }
             const assets = json.result.quotes.map((q, i) => ({
                 id: i + 1,
@@ -271,7 +271,7 @@ export default function Markets() {
             const res = await fetch('/api/markets/us');
             const json = await res.json();
             if (!json.ok || !json.result?.quotes) {
-                throw new Error(json.message || 'US piyasa verisi alınamadı');
+                throw new Error(json.message || 'Failed to fetch US market data');
             }
             const assets = json.result.quotes.map((q, i) => ({
                 id: i + 1,
@@ -307,7 +307,7 @@ export default function Markets() {
             const res = await fetch('/api/markets/forex');
             const json = await res.json();
             if (!json.ok || !json.result?.quotes) {
-                throw new Error(json.message || 'Forex verisi alınamadı');
+                throw new Error(json.message || 'Failed to fetch forex data');
             }
             const assets = json.result.quotes.map((q, i) => ({
                 id: i + 1,
@@ -343,7 +343,7 @@ export default function Markets() {
             const res = await fetch('/api/markets/commodity');
             const json = await res.json();
             if (!json.ok || !json.result?.quotes) {
-                throw new Error(json.message || 'Emtia verisi alınamadı');
+                throw new Error(json.message || 'Failed to fetch commodity data');
             }
             const assets = json.result.quotes.map((q, i) => ({
                 id: i + 1,
@@ -379,7 +379,7 @@ export default function Markets() {
             const res = await fetch('/api/markets/fund');
             const json = await res.json();
             if (!json.ok || !json.result?.quotes) {
-                throw new Error(json.message || 'Fon/ETF verisi alınamadı');
+                throw new Error(json.message || 'Failed to fetch fund/ETF data');
             }
             const assets = json.result.quotes.map((q, i) => ({
                 id: i + 1,
@@ -417,7 +417,7 @@ export default function Markets() {
         }
     }, [activeTab, marketDataByTab, loadingByTab, fetchMap]);
 
-    // Otomatik yenileme: aktif sekme açıkken belirli aralıklarla veriyi güncelle
+    // Auto-refresh: update data at intervals while active tab is open
     useEffect(() => {
         const fetcher = fetchMap[activeTab];
         if (!fetcher) return;
@@ -524,7 +524,7 @@ export default function Markets() {
                     {!isLoadingMarket && marketError && (
                         <div className="markets-error">
                             <p>{marketError}</p>
-                            <button type="button" onClick={() => fetchMap[activeTab]?.()}>Tekrar dene</button>
+                            <button type="button" onClick={() => fetchMap[activeTab]?.()}>Retry</button>
                         </div>
                     )}
                     {!isLoadingMarket && !marketError ? (

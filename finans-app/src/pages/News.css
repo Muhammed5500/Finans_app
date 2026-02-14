@@ -129,7 +129,7 @@
     border-color: var(--color-accent-primary);
 }
 
-/* Sol tarafta kare haber görseli */
+/* Square news thumbnail on the left */
 .news-card-inner {
     display: flex;
     flex-direction: row;

@@ -15,7 +15,7 @@ import { getSourceInfo } from '../constants/newsSourceLogos';
 import './News.css';
 import newsPlaceholderUrl from '../assets/news-placeholder.svg';
 
-// Yerel placeholder: Vite import ile her ortamda doğru yol
+// Local placeholder via Vite import
 const NEWS_PLACEHOLDER = newsPlaceholderUrl;
 
 // API category mapping: tab id -> finans-api category
@@ -31,10 +31,10 @@ function relativeTime(isoDate) {
     const date = new Date(isoDate);
     const now = new Date();
     const sec = Math.floor((now - date) / 1000);
-    if (sec < 60) return 'Az önce';
-    if (sec < 3600) return `${Math.floor(sec / 60)} dakika önce`;
-    if (sec < 86400) return `${Math.floor(sec / 3600)} saat önce`;
-    if (sec < 604800) return `${Math.floor(sec / 86400)} gün önce`;
+    if (sec < 60) return 'Just now';
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+    if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
     return date.toLocaleDateString();
 }
 
@@ -42,9 +42,9 @@ function relativeTime(isoDate) {
 function mapNewsItemToCard(item) {
     return {
         id: item.id,
-        source: item.source || 'Kaynak',
+        source: item.source || 'Source',
         sourceId: item.source || '',
-        sourceDisplayName: item.sourceDisplayName || item.source || 'Kaynak',
+        sourceDisplayName: item.sourceDisplayName || item.source || 'Source',
         headline: item.title || '',
         preview: item.summary || '',
         timestamp: relativeTime(item.publishedAt),
@@ -77,8 +77,8 @@ async function fetchAIAnalysis(headline, source, preview, language) {
 
 const FEED_LIMIT = 20;
 
-/** Otomatik yenileme aralığı (ms) - Haber listesi */
-const NEWS_REFRESH_INTERVAL_MS = 120 * 1000; // 2 dakika
+/** Auto-refresh interval (ms) for the news feed */
+const NEWS_REFRESH_INTERVAL_MS = 120 * 1000; // 2 minutes
 
 export default function News() {
     const [activeTab, setActiveTab] = useState('crypto');
@@ -122,7 +122,7 @@ export default function News() {
         }
     }, [activeTab, fetchNews, newsByTab, loadingByTab]);
 
-    // Otomatik yenileme: Açık olan haber kategorisi belirli aralıklarla güncellenir
+    // Auto-refresh: active news category refreshes at interval
     useEffect(() => {
         const intervalId = setInterval(() => {
             fetchNews(activeTab, true);
@@ -152,7 +152,7 @@ export default function News() {
                 setAIResponse(ql ? `• ${ql}` : cached.summary);
             } else if (type === 'meaning') setAIResponse(cached.marketImpact || cached.summary);
             else if (type === 'impact') {
-                const stocks = cached.affectedStocks?.length ? '\n\nEtkilenen: ' + cached.affectedStocks.join(', ') : '';
+                const stocks = cached.affectedStocks?.length ? '\n\nAffected: ' + cached.affectedStocks.join(', ') : '';
                 setAIResponse(`${cached.summary}${stocks}`);
             }
             return;
@@ -167,11 +167,11 @@ export default function News() {
                 setAIResponse(ql ? `• ${ql}` : result.summary);
             } else if (type === 'meaning') setAIResponse(result.marketImpact || result.summary);
             else if (type === 'impact') {
-                const stocks = result.affectedStocks?.length ? '\n\nEtkilenen: ' + result.affectedStocks.join(', ') : '';
+                const stocks = result.affectedStocks?.length ? '\n\nAffected: ' + result.affectedStocks.join(', ') : '';
                 setAIResponse(`${result.summary}${stocks}`);
             }
         } catch {
-            setAIResponse('AI analizi yapılamadı. Lütfen tekrar deneyin.');
+            setAIResponse('AI analysis failed. Please try again.');
         }
         setIsLoading(false);
     };
@@ -224,15 +224,15 @@ export default function News() {
                 )}
                 {!isLoadingFeed && feedError && (
                     <div className="news-feed-error">
-                        <p>Haberler yüklenemedi: {feedError}</p>
-                        <p className="news-feed-error-hint">finans-api (3002) çalışıyor mu? (category: {TAB_TO_CATEGORY[activeTab]})</p>
-                        <button type="button" onClick={() => fetchNews(activeTab)}>Tekrar dene</button>
+                        <p>Failed to load news: {feedError}</p>
+                        <p className="news-feed-error-hint">Is finans-api (3002) running? (category: {TAB_TO_CATEGORY[activeTab]})</p>
+                        <button type="button" onClick={() => fetchNews(activeTab)}>Retry</button>
                     </div>
                 )}
                 {!isLoadingFeed && !feedError && currentNews.length === 0 && (
                     <div className="news-feed-empty">
-                        <p>Bu kategoride henüz haber yok.</p>
-                        <p className="news-feed-empty-hint">Harici haber kaynağı yanıt vermedi. Lütfen tekrar deneyin.</p>
+                        <p>No news in this category yet.</p>
+                        <p className="news-feed-empty-hint">External news source did not respond. Please try again.</p>
                     </div>
                 )}
                 {!isLoadingFeed && !feedError && currentNews.map((article, index) => (
@@ -242,7 +242,7 @@ export default function News() {
                         style={{ animationDelay: `${index * 0.05}s` }}
                     >
                         <div className="news-card-inner">
-                            {/* Sol: kare haber görseli */}
+                            {/* News thumbnail */}
                             <div className="news-thumbnail">
                                 <img
                                     src={article.imageUrl}
@@ -297,21 +297,21 @@ export default function News() {
                                     onClick={() => handleAIAction(article.id, 'summarize', article.headline, article.source, article.preview, article.language)}
                                 >
                                     <Sparkles size={14} />
-                                    Özetle
+                                    Summarize
                                 </button>
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'meaning' ? 'active' : ''}`}
                                     onClick={() => handleAIAction(article.id, 'meaning', article.headline, article.source, article.preview, article.language)}
                                 >
                                     <HelpCircle size={14} />
-                                    Ne anlama geliyor?
+                                    What does it mean?
                                 </button>
                                 <button
                                     className={`ai-action-btn ${activeAI?.newsId === article.id && activeAI?.type === 'impact' ? 'active' : ''}`}
                                     onClick={() => handleAIAction(article.id, 'impact', article.headline, article.source, article.preview, article.language)}
                                 >
                                     <TrendingUp size={14} />
-                                    Piyasa etkisi?
+                                    Market impact?
                                 </button>
                             </div>
                             </div>

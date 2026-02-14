@@ -353,7 +353,7 @@ export async function getCryptoDetail(req: Request, res: Response): Promise<void
     exDividendDate: null,
     dividendDate: null,
     paysDividend: false,
-    dividendNote: 'Kripto paralar temettü ödemez',
+    dividendNote: 'Cryptocurrencies do not pay dividends',
     
     // 24hr statistics from ticker
     price: parseFloat(ticker.data.lastPrice),
@@ -371,7 +371,7 @@ export async function getCryptoDetail(req: Request, res: Response): Promise<void
     
     // Note: Binance doesn't provide listing date via this API
     listingDate: null,
-    listingNote: 'Liste tarihi bilgisi mevcut değil',
+    listingNote: 'Listing date information not available',
     
     // Metadata
     market: 'Crypto',

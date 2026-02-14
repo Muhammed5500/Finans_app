@@ -26,7 +26,7 @@ const settingsSections = [
 ];
 
 const currencies = ['USD', 'EUR', 'TRY', 'GBP'];
-const languages = ['English', 'Türkçe', 'Deutsch', 'Español'];
+const languages = ['English', 'Turkish', 'Deutsch', 'Español'];
 
 function getInitialTheme() {
     try {

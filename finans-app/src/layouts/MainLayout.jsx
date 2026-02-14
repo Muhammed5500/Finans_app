@@ -4,41 +4,52 @@ import {
   Briefcase,
   TrendingUp,
   Newspaper,
-  Settings,
-  Search,
-  User,
   X,
   Send,
   Menu,
   Loader2,
   Bot,
+  Sun,
+  Moon,
+  LogOut,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import CommandPalette from '../components/CommandPalette';
 import './MainLayout.css';
 
-const PORTFOLIO_STORAGE_KEY = 'finans_portfolio_holdings';
+function portfolioStorageKey(userId) { return `finans_portfolio_holdings_${userId}`; }
 
 const navigation = [
   { name: 'Portfolio', href: '/', icon: Briefcase },
   { name: 'News', href: '/news', icon: Newspaper },
   { name: 'Markets', href: '/markets', icon: TrendingUp },
-  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 const exampleQuestions = [
-  "Portföyüm dengeli mi?",
-  "Faiz artışı ne demek?",
-  "Portföyümü nasıl çeşitlendirebilirim?",
-  "Bugün piyasalarda ne oldu?",
+  "Is my portfolio balanced?",
+  "What does an interest rate hike mean?",
+  "How can I diversify my portfolio?",
+  "What happened in the markets today?",
 ];
 
 export default function MainLayout() {
+  const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('finans_theme') || 'dark'; } catch { return 'dark'; }
+  });
+
+  const toggleTheme = useCallback(() => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('finans_theme', next);
+  }, [theme]);
   const messagesEndRef = useRef(null);
   const chatInputRef = useRef(null);
   const location = useLocation();
@@ -68,24 +79,12 @@ export default function MainLayout() {
     if (chatOpen) setTimeout(() => chatInputRef.current?.focus(), 300);
   }, [chatOpen]);
 
-  // Listen for custom event from News page to open chat with context
-  useEffect(() => {
-    const handler = (e) => {
-      const { message } = e.detail || {};
-      if (message) {
-        setChatOpen(true);
-        setChatMessage(message);
-      }
-    };
-    window.addEventListener('kamil-ai-ask', handler);
-    return () => window.removeEventListener('kamil-ai-ask', handler);
-  }, []);
-
   // ─── Build context from localStorage + current page ────────────
   const buildContext = useCallback(() => {
     const ctx = { currentPage: location.pathname };
     try {
-      const raw = localStorage.getItem(PORTFOLIO_STORAGE_KEY);
+      const key = portfolioStorageKey(user?.id || 'anonymous');
+      const raw = localStorage.getItem(key);
       if (raw) {
         const holdings = JSON.parse(raw);
         ctx.holdings = holdings.map(h => ({
@@ -97,12 +96,10 @@ export default function MainLayout() {
       }
     } catch { /* ignore */ }
     return ctx;
-  }, [location.pathname]);
+  }, [location.pathname, user]);
 
-  // ─── Send message to Gemini ─────────────────────────────────────
-  const handleSendMessage = useCallback(async (e) => {
-    e.preventDefault();
-    const msg = chatMessage.trim();
+  // ─── Core send function (reusable) ─────────────────────────────
+  const sendMessageDirect = useCallback(async (msg) => {
     if (!msg || chatLoading) return;
 
     setChatMessage('');
@@ -122,7 +119,7 @@ export default function MainLayout() {
       } else {
         const errMsg = typeof json.error === 'string'
           ? json.error
-          : json.error?.message || 'Yanıt alınamadı. Lütfen tekrar deneyin.';
+          : json.error?.message || 'Could not get a response. Please try again.';
         setChatHistory(prev => [...prev, {
           role: 'assistant',
           content: errMsg,
@@ -131,12 +128,36 @@ export default function MainLayout() {
     } catch {
       setChatHistory(prev => [...prev, {
         role: 'assistant',
-        content: 'Bağlantı hatası. finans-api sunucusunun çalıştığından emin olun.',
+        content: 'Connection error. Make sure finans-api is running.',
       }]);
     }
 
     setChatLoading(false);
-  }, [chatMessage, chatLoading, buildContext]);
+  }, [chatLoading, buildContext]);
+
+  // ─── Form submit handler ───────────────────────────────────────
+  const handleSendMessage = useCallback(async (e) => {
+    e.preventDefault();
+    const msg = chatMessage.trim();
+    sendMessageDirect(msg);
+  }, [chatMessage, sendMessageDirect]);
+
+  // Listen for custom event to open chat (optionally auto-send)
+  useEffect(() => {
+    const handler = (e) => {
+      const { message, autoSend } = e.detail || {};
+      if (message) {
+        setChatOpen(true);
+        if (autoSend) {
+          sendMessageDirect(message);
+        } else {
+          setChatMessage(message);
+        }
+      }
+    };
+    window.addEventListener('kamil-ai-ask', handler);
+    return () => window.removeEventListener('kamil-ai-ask', handler);
+  }, [sendMessageDirect]);
 
   // ─── Quick-fill example question ────────────────────────────────
   const handleExampleClick = (q) => {
@@ -170,14 +191,20 @@ export default function MainLayout() {
 
         <div className="topnav-actions">
           <button
-            className="topnav-icon-btn"
-            onClick={() => setCommandPaletteOpen(true)}
-            title="Search (Ctrl+K)"
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Light Theme' : 'Dark Theme'}
+            aria-label="Toggle theme"
           >
-            <Search size={18} />
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button className="topnav-icon-btn" title="Profile">
-            <User size={18} />
+          <button
+            className="theme-toggle-btn"
+            onClick={logout}
+            title="Sign Out"
+            aria-label="Logout"
+          >
+            <LogOut size={18} />
           </button>
           <button
             className="topnav-icon-btn mobile-only"
@@ -214,6 +241,14 @@ export default function MainLayout() {
               {item.name}
             </NavLink>
           ))}
+          <button className="mobile-link mobile-theme-btn" onClick={toggleTheme}>
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            {theme === 'dark' ? 'Light Theme' : 'Dark Theme'}
+          </button>
+          <button className="mobile-link mobile-theme-btn" onClick={logout}>
+            <LogOut size={20} />
+            Sign Out
+          </button>
         </nav>
       </div>
 
@@ -241,7 +276,7 @@ export default function MainLayout() {
             <div className="chat-avatar"><Bot size={16} /></div>
             <div>
               <h3 className="chat-title">Kamil AI</h3>
-              <span className="chat-subtitle">Finans Asistanı</span>
+              <span className="chat-subtitle">Finance Assistant</span>
             </div>
           </div>
           <button className="chat-close" onClick={() => setChatOpen(false)} aria-label="Close chat">
@@ -253,8 +288,8 @@ export default function MainLayout() {
           {chatHistory.length === 0 ? (
             <div className="chat-welcome">
               <div className="welcome-icon"><Bot size={32} /></div>
-              <h4>Merhaba, ben Kamil AI</h4>
-              <p>Portföyün, piyasalar veya finans hakkında her şeyi sorabilirsin.</p>
+              <h4>Hi, I'm Kamil AI</h4>
+              <p>Ask me anything about your portfolio, markets, or finance.</p>
             </div>
           ) : (
             chatHistory.map((msg, idx) => (
@@ -271,7 +306,7 @@ export default function MainLayout() {
               <div className="msg-avatar"><Bot size={14} /></div>
               <div className="message-bubble typing">
                 <Loader2 size={14} className="spin" />
-                <span>Düşünüyorum...</span>
+                <span>Thinking...</span>
               </div>
             </div>
           )}
@@ -280,7 +315,7 @@ export default function MainLayout() {
 
         {chatHistory.length === 0 && (
           <div className="chat-examples">
-            <span className="examples-label">Bunları sorabilirsin:</span>
+            <span className="examples-label">Try asking:</span>
             <div className="examples-list">
               {exampleQuestions.map((q, idx) => (
                 <button key={idx} className="example-btn" onClick={() => handleExampleClick(q)}>
@@ -296,7 +331,7 @@ export default function MainLayout() {
             ref={chatInputRef}
             type="text"
             className="chat-input"
-            placeholder="Kamil AI'a sor..."
+            placeholder="Ask Kamil AI..."
             value={chatMessage}
             onChange={(e) => setChatMessage(e.target.value)}
             disabled={chatLoading}
