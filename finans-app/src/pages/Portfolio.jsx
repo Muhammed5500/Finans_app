@@ -5,7 +5,6 @@ import {
     Trash2,
     X,
     RefreshCw,
-    Clock,
     ChevronDown,
     ChevronRight,
     Star,
@@ -13,8 +12,6 @@ import {
     TrendingDown,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import NewsReaderModal from '../components/NewsReaderModal';
-import { getSourceInfo } from '../constants/newsSourceLogos';
 import {
     PieChart,
     Pie,
@@ -26,7 +23,6 @@ import {
     Tooltip,
     ResponsiveContainer,
 } from 'recharts';
-import { Skeleton } from '../components/Skeleton';
 import './Portfolio.css';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -34,8 +30,6 @@ import './Portfolio.css';
 function storageKey(userId) { return `finans_portfolio_holdings_${userId}`; }
 function favoritesKey(userId) { return `finans_favorites_${userId}`; }
 const PRICE_REFRESH_INTERVAL = 30000;
-const NEWS_REFRESH_INTERVAL = 120000;
-
 const MARKET_OPTIONS = [
     { value: 'bist', label: 'BIST', currency: '₺' },
     { value: 'us', label: 'US', currency: '$' },
@@ -62,13 +56,6 @@ const MARKET_LABELS = {
     commodity: 'Commodities',
     fund: 'Funds/ETF',
 };
-
-const NEWS_CATEGORIES = [
-    { value: 'crypto', label: 'Crypto' },
-    { value: 'bist', label: 'BIST' },
-    { value: 'us', label: 'US' },
-    { value: 'economy', label: 'Economy' },
-];
 
 const TIME_RANGES = ['1D', '3M', '1Y', 'TIME'];
 
@@ -191,16 +178,6 @@ function formatQuantity(qty) {
     if (qty < 1) return qty.toFixed(4);
     if (qty % 1 === 0) return qty.toLocaleString('en-US');
     return qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function relativeTime(isoDate) {
-    if (!isoDate) return '';
-    const sec = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
-    if (sec < 60) return 'Just now';
-    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-    if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
-    return new Date(isoDate).toLocaleDateString('en-US');
 }
 
 // ─── Chart data helpers ─────────────────────────────────────────────────────
@@ -364,18 +341,6 @@ export default function Portfolio() {
     const favDropdownRef = useRef(null);
 
     useEffect(() => { saveFavorites(favorites, userId); }, [favorites, userId]);
-
-    // News
-    const [news, setNews] = useState([]);
-    const [newsLoading, setNewsLoading] = useState(true);
-    const [newsCategory, setNewsCategory] = useState('crypto');
-    const newsTimerRef = useRef(null);
-    const [newsReaderArticle, setNewsReaderArticle] = useState(null);
-
-    // Portfolio-news matching
-    const [portfolioMatches, setPortfolioMatches] = useState({});
-    const [matchLoading, setMatchLoading] = useState(false);
-    const [newsFilter, setNewsFilter] = useState('all');
 
     // Form
     const [formMarket, setFormMarket] = useState('us');
@@ -577,74 +542,6 @@ export default function Portfolio() {
         return () => clearInterval(refreshTimerRef.current);
     }, [refreshPrices]);
 
-    // ── News ────────────────────────────────────────────────────────────
-    const fetchNews = useCallback(async () => {
-        setNewsLoading(true);
-        try {
-            const res = await fetch(`/api/news?category=${newsCategory}&limit=15`);
-            const json = await res.json();
-            if (json.ok && json.result?.items) {
-                setNews(json.result.items);
-            } else if (Array.isArray(json)) {
-                setNews(json);
-            }
-        } catch { /* silent */ }
-        setNewsLoading(false);
-    }, [newsCategory]);
-
-    useEffect(() => {
-        fetchNews();
-        newsTimerRef.current = setInterval(fetchNews, NEWS_REFRESH_INTERVAL);
-        return () => clearInterval(newsTimerRef.current);
-    }, [fetchNews]);
-
-    useEffect(() => {
-        if (holdings.length === 0) return;
-        const counts = {};
-        for (const h of holdings) counts[h.market] = (counts[h.market] || 0) + 1;
-        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-        if (top) setNewsCategory(top);
-    }, []);
-
-    // ── All tracked symbols (portfolio + favorites) ────────────────────
-    const allTrackedSymbols = useMemo(() => {
-        const set = new Set();
-        for (const h of holdings) set.add(h.symbol);
-        for (const f of favorites) set.add(f.symbol);
-        return [...set];
-    }, [holdings, favorites]);
-
-    // ── Portfolio+Favorites News Matching via Gemini ─────────────────
-    useEffect(() => {
-        if (allTrackedSymbols.length === 0 || news.length === 0) {
-            setPortfolioMatches({});
-            return;
-        }
-        let cancelled = false;
-        setMatchLoading(true);
-
-        const newsItems = news.map((n, i) => ({
-            id: n.id || String(i),
-            title: n.title,
-        }));
-
-        fetch('/api/ai/match-portfolio-news', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbols: allTrackedSymbols, news: newsItems }),
-        })
-            .then(res => res.json())
-            .then(json => {
-                if (!cancelled && json.ok && json.result) {
-                    setPortfolioMatches(json.result);
-                }
-            })
-            .catch(() => { /* silent */ })
-            .finally(() => { if (!cancelled) setMatchLoading(false); });
-
-        return () => { cancelled = true; };
-    }, [allTrackedSymbols, news]);
-
     // ── Add Holding ─────────────────────────────────────────────────────
     const handleAddHolding = async (e) => {
         e.preventDefault();
@@ -718,21 +615,6 @@ export default function Portfolio() {
             hasPrices: anyPrice,
         };
     }, [enrichedHoldings]);
-
-    // ── Sorted & filtered news — sadece portföy+favorilere göre ────────
-    const displayedNews = useMemo(() => {
-        const enriched = news.map((item, i) => {
-            const id = item.id || String(i);
-            const matchedSymbols = portfolioMatches[id] || [];
-            return { ...item, _id: id, matchedSymbols };
-        });
-
-        // Only show matched news (portfolio + favorites)
-        if (allTrackedSymbols.length > 0) {
-            return enriched.filter(n => n.matchedSymbols.length > 0);
-        }
-        return enriched;
-    }, [news, portfolioMatches, allTrackedSymbols]);
 
     // ── Holdings grouped by market ─────────────────────────────────────
     const holdingsByMarket = useMemo(() => {
@@ -1151,7 +1033,7 @@ export default function Portfolio() {
                 ))}
             </div>
 
-            {/* ─── Right Column — Favorites + News ─── */}
+            {/* ─── Right Column — Favorites ─── */}
             <aside className="portfolio-sidebar">
                 {/* ── Favorites Panel ── */}
                 <div className="favorites-panel">
@@ -1255,89 +1137,7 @@ export default function Portfolio() {
                     </div>
                 </div>
 
-                {/* ── News Panel (Dark Theme) ── */}
-                <div className="news-panel">
-                    <div className="news-panel-header">
-                        <h3 className="news-panel-title">News</h3>
-                        <div className="time-tabs sm">
-                            {NEWS_CATEGORIES.map(c => (
-                                <button key={c.value}
-                                    className={`time-tab ${newsCategory === c.value ? 'active' : ''}`}
-                                    onClick={() => setNewsCategory(c.value)}
-                                >{c.label}</button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="news-list">
-                        {newsLoading ? (
-                            Array.from({ length: 6 }).map((_, i) => (
-                                <div key={i} className="news-item-skel">
-                                    <Skeleton width={28} height={28} />
-                                    <div style={{ flex: 1 }}>
-                                        <Skeleton width="80%" height={12} />
-                                        <Skeleton width="50%" height={10} />
-                                    </div>
-                                </div>
-                            ))
-                        ) : displayedNews.length === 0 ? (
-                            <div className="news-empty">
-                                {allTrackedSymbols.length > 0
-                                    ? 'No news matching your watchlist'
-                                    : 'Related news will appear here when you add portfolio or favorites'}
-                            </div>
-                        ) : (
-                            displayedNews.map((item, i) => {
-                                const si = getSourceInfo(item.source);
-                                const hasMatch = item.matchedSymbols.length > 0;
-                                return (
-                                    <button key={item._id || i}
-                                        className={`news-item ${hasMatch ? 'news-item-matched' : ''}`}
-                                        onClick={() => setNewsReaderArticle({
-                                            id: item.id,
-                                            headline: item.title,
-                                            preview: item.summary || '',
-                                            url: item.url,
-                                            source: item.source,
-                                            sourceId: item.source,
-                                            sourceDisplayName: item.sourceDisplayName || si.label,
-                                            imageUrl: item.imageUrl,
-                                            timestamp: relativeTime(item.publishedAt),
-                                            language: item.language || 'en',
-                                            matchedSymbols: hasMatch ? item.matchedSymbols : undefined,
-                                        })}
-                                    >
-                                        <div className="news-avatar" style={{ background: si.color }}>
-                                            {si.label.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div className="news-item-info">
-                                            <span className="news-item-title">{item.title}</span>
-                                            <div className="news-item-meta">
-                                                <span className="news-item-source">{si.label}</span>
-                                                {hasMatch && (
-                                                    <div className="portfolio-badge-symbols">
-                                                        {item.matchedSymbols.map(s => (
-                                                            <span key={s} className="portfolio-symbol-chip">{s}</span>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </button>
-                                );
-                            })
-                        )}
-                    </div>
-                </div>
             </aside>
-
-            {/* News Reader Modal */}
-            {newsReaderArticle && (
-                <NewsReaderModal
-                    article={newsReaderArticle}
-                    onClose={() => setNewsReaderArticle(null)}
-                />
-            )}
         </div>
     );
 }
