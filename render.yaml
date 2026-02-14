@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: finans-api
+    runtime: node
+    region: frankfurt
+    rootDir: finans-api
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
