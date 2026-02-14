@@ -10,6 +10,20 @@ function getApiKey(): string {
 }
 
 async function callAI(messages: Array<{ role: string; content: string }>): Promise<string> {
+  // Gemma models don't support system messages — merge into first user message
+  const mergedMessages = [];
+  let systemContent = '';
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      systemContent += msg.content + '\n\n';
+    } else if (msg.role === 'user' && systemContent) {
+      mergedMessages.push({ role: 'user', content: systemContent + msg.content });
+      systemContent = '';
+    } else {
+      mergedMessages.push(msg);
+    }
+  }
+
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
@@ -20,7 +34,7 @@ async function callAI(messages: Array<{ role: string; content: string }>): Promi
     },
     body: JSON.stringify({
       model: MODEL,
-      messages,
+      messages: mergedMessages,
     }),
   });
 
